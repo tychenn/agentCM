@@ -9,6 +9,7 @@ from .deepseek_client import Client, save
 from .config import load_env
 from .dependencies import (add_dependency_reasons, build_dependency_evidence,
                            project_local_graphs)
+from .grouping import build_task_tree
 from .normalize import load, normalize, prepare
 from .validate import (Invalid, attach_tool_calls, expand_grouping, require,
                        stable_ids, strict_json, tree, turn_annotation)
@@ -31,6 +32,15 @@ def parser():
                              help='模型上下文上限；请求以 UTF-8 字节数保守估计，不截断')
         command.add_argument('--timeout', type=float, default=600)
         command.add_argument('--retries', type=int, default=3)
+        if name == 'build':
+            command.add_argument('--merge-window', type=int, default=16,
+                                 help='局部归并初始候选节点数，默认 16')
+            command.add_argument('--merge-window-max', type=int, default=64,
+                                 help='局部归并最大候选节点数，默认 64')
+            command.add_argument('--merge-input-tokens', type=int, default=65536,
+                                 help='局部归并输入的保守 UTF-8 容量预算，默认 65536')
+            command.add_argument('--merge-lookback', type=int, default=1,
+                                 help='任务边界两侧允许回看的直属节点数，默认 1')
     visual = sub.add_parser('render', help='将层级任务依赖图生成为可展开的 HTML 页面，不调用模型')
     visual.add_argument('--input', required=True, type=Path, help='execution_tree.json 文件或运行目录')
     visual.add_argument('--output', type=Path, help='默认保存为同目录的 tree.html')
@@ -66,6 +76,13 @@ def run(args, transport=None):
         return
     require(args.retries >= 0 and args.timeout > 0 and args.max_output_tokens > 0 and
             args.context_tokens > args.max_output_tokens, 'Invalid request limits')
+    if args.command == 'build':
+        require(2 <= args.merge_window <= args.merge_window_max,
+                'Require 2 <= --merge-window <= --merge-window-max')
+        require(args.merge_input_tokens > 0,
+                '--merge-input-tokens must be positive')
+        require(0 <= args.merge_lookback < args.merge_window,
+                'Require 0 <= --merge-lookback < --merge-window')
     default = Path('runs') / args.input.stem
     output = (args.output or (default if args.command == 'build' else default / 'normalized_trace.json')).resolve()
     directory = output if args.command == 'build' else output.parent
@@ -105,10 +122,13 @@ def run(args, transport=None):
                 'turns': turn_nodes, 'review_flags': annotations['review_flags']})
             state['stage'] = 'turns_annotated'
             save(checkpoint, state)
-            parts = ['group_turns_v1', 'execution_format']
-            group_data = {'query_json': trace['query'], 'turn_nodes_json': turn_nodes}
-            grouped_refs = client.ask('group-turns', parts, 'group_turns_user', group_data,
-                lambda value: expand_grouping(value, trace, turn_nodes))
+            grouped_refs = build_task_tree(
+                trace, turn_nodes, client,
+                window=args.merge_window,
+                window_max=args.merge_window_max,
+                input_tokens=args.merge_input_tokens,
+                lookback=args.merge_lookback,
+            )
             final = expand_grouping(grouped_refs, trace, turn_nodes)
             final, mapping = stable_ids(final)
             final['review_flags'] = list(dict.fromkeys(

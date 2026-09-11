@@ -25,11 +25,15 @@ def ref(eid, text, cid=None, field='thought'):
     return {'event_id': eid, 'tool_call_id': cid, 'field': field, 'quote': text}
 
 
-def task(id, goal, *, turns=None, subtasks=None, evidence_event_ids=None,
-         reason='实际进入该目标'):
-    return dict(id=id, goal=goal, status='completed', reason=reason, result=None,
-                source_event_ids=evidence_event_ids or [], subtasks=subtasks or [],
-                turn_event_ids=turns or [])
+def summary(goal, event_ids, result=None, reason='这些连续节点共同完成该局部目标'):
+    return {
+        'goal': goal,
+        'completion_condition': goal + '已完成',
+        'status': 'completed',
+        'reason': reason,
+        'result': result,
+        'source_event_ids': event_ids,
+    }
 
 
 def fixture():
@@ -100,30 +104,138 @@ class Model:
                 }
                 for edge in supplied
             ]}
+        elif 'Decide the first leaf-task boundary' in system:
+            data = json.loads(user.split('LOCAL GROUPING INPUT\n')[1])
+            cards = data['candidates']
+            if cards[0]['node_id'] == 'event-0005' and len(cards) >= 2:
+                chosen = cards[:2]
+                value = {
+                    'action': 'merge',
+                    'member_ids': [card['node_id'] for card in chosen],
+                    'task': summary('生成图表并完成任务',
+                                    [card['node_id'] for card in chosen], '图表已保存'),
+                    'review_flags': [],
+                }
+            else:
+                card = cards[0]
+                value = {
+                    'action': 'keep', 'member_ids': [card['node_id']],
+                    'task': summary(card['goal'], card['evidence_event_ids'], card['result']),
+                    'review_flags': [],
+                }
+        elif 'Decide whether the anchor and following task nodes form one meaningful' in system:
+            data = json.loads(user.split('LOCAL GROUPING INPUT\n')[1])
+            cards = data['candidates']
+            goals = [card['goal'] for card in cards]
+            if goals[:3] == ['读取数据', '安装缺少的依赖', '恢复读取数据']:
+                chosen = cards[:3]
+                evidence = [event_id for card in chosen
+                            for event_id in card['evidence_event_ids']]
+                value = {
+                    'action': 'merge',
+                    'member_ids': [card['node_id'] for card in chosen],
+                    'task': summary('准备并读取数据', evidence, '数据读取已恢复'),
+                    'review_flags': [],
+                }
+            else:
+                value = {'action': 'keep', 'member_ids': [cards[0]['node_id']],
+                         'task': None, 'review_flags': []}
+        elif 'Review only the most recently formed boundary' in system:
+            value = {
+                'action': 'keep_boundary', 'move_count': 0,
+                'left_task': None, 'right_task': None, 'merged_task': None,
+                'review_flags': [],
+            }
+        elif 'Summarize the supplied completed task-tree frontier' in system:
+            value = {'status': 'completed', 'result': '读取、汇总和绘图均已完成',
+                     'review_flags': []}
         else:
-            query, _ = json.JSONDecoder().raw_decode(user.split('ROOT QUERY\n')[1])
-            turns, _ = json.JSONDecoder().raw_decode(user.split('AGENT TURN NODES\n')[1])
-            read_attempt = task('read-attempt', '尝试读取数据', turns=['event-0001'],
-                                evidence_event_ids=['event-0001'])
-            install = task('install', '安装缺少的依赖', turns=['event-0002'],
-                           evidence_event_ids=['event-0002'])
-            resume = task('resume', '恢复读取数据', turns=['event-0003'],
-                          evidence_event_ids=['event-0003'])
-            read = task('read', '准备并读取数据',
-                        subtasks=[read_attempt, install, resume],
-                        evidence_event_ids=['event-0001', 'event-0003'])
-            aggregate = task('aggregate', '按月汇总', turns=['event-0004'],
-                             evidence_event_ids=['event-0004'])
-            plot = task('plot', '生成图表并完成任务',
-                        turns=['event-0005', 'event-0006'],
-                        evidence_event_ids=['event-0005'])
-            root = task('root', query['text'], subtasks=[read, aggregate, plot],
-                        reason=None)
-            value = {'root': root, 'review_flags': []}
+            raise AssertionError('Unexpected model request:\n' + system)
         content = json.dumps(value, ensure_ascii=False)
         if self.invalid_first and len(self.requests) == 1:
             content = '```json\n' + content + '\n```'
         return {'choices': [{'finish_reason': 'stop', 'message': {'content': content}}]}
+
+
+class ExpandingModel(Model):
+    def __init__(self):
+        super().__init__()
+        self.expanded = False
+
+    def __call__(self, payload):
+        system, user = [message['content'] for message in payload['messages']]
+        if 'Decide the first leaf-task boundary' in system:
+            data = json.loads(user.split('LOCAL GROUPING INPUT\n')[1])
+            if (not self.expanded and data['candidates'][0]['node_id'] == 'event-0001'
+                    and data['can_extend']):
+                self.expanded = True
+                self.requests.append(payload)
+                value = {'action': 'need_more_context', 'member_ids': [],
+                         'task': None, 'review_flags': ['anchor boundary is outside this window']}
+                return {'choices': [{'finish_reason': 'stop', 'message': {
+                    'content': json.dumps(value)}}]}
+        return super().__call__(payload)
+
+
+class BoundaryShiftModel(Model):
+    def __init__(self):
+        super().__init__()
+        self.initial_merge = False
+        self.shifted = False
+
+    def __call__(self, payload):
+        system, user = [message['content'] for message in payload['messages']]
+        if 'Decide the first leaf-task boundary' in system:
+            data = json.loads(user.split('LOCAL GROUPING INPUT\n')[1])
+            cards = data['candidates']
+            if (not self.initial_merge and cards[0]['node_id'] == 'event-0001'
+                    and len(cards) >= 2):
+                self.initial_merge = True
+                self.requests.append(payload)
+                chosen = cards[:2]
+                value = {
+                    'action': 'merge',
+                    'member_ids': [card['node_id'] for card in chosen],
+                    'task': summary('初步读取和修复',
+                                    [card['node_id'] for card in chosen]),
+                    'review_flags': [],
+                }
+                return {'choices': [{'finish_reason': 'stop', 'message': {
+                    'content': json.dumps(value, ensure_ascii=False)}}]}
+        if 'Review only the most recently formed boundary' in system and not self.shifted:
+            self.shifted = True
+            self.requests.append(payload)
+            value = {
+                'action': 'shift_right', 'move_count': 1,
+                'left_task': summary('读取数据', ['event-0001']),
+                'right_task': summary('安装依赖并恢复读取',
+                                      ['event-0002', 'event-0003']),
+                'merged_task': None, 'review_flags': [],
+            }
+            return {'choices': [{'finish_reason': 'stop', 'message': {
+                'content': json.dumps(value, ensure_ascii=False)}}]}
+        return super().__call__(payload)
+
+
+class NonPrefixModel(Model):
+    def __call__(self, payload):
+        system, user = [message['content'] for message in payload['messages']]
+        if 'Decide the first leaf-task boundary' in system:
+            data = json.loads(user.split('LOCAL GROUPING INPUT\n')[1])
+            cards = data['candidates']
+            if len(cards) >= 3:
+                self.requests.append(payload)
+                chosen = [cards[0], cards[2]]
+                value = {
+                    'action': 'merge',
+                    'member_ids': [card['node_id'] for card in chosen],
+                    'task': summary('非法跳跃归并',
+                                    [card['node_id'] for card in chosen]),
+                    'review_flags': [],
+                }
+                return {'choices': [{'finish_reason': 'stop', 'message': {
+                    'content': json.dumps(value, ensure_ascii=False)}}]}
+        return super().__call__(payload)
 
 
 class StageOneTests(unittest.TestCase):
@@ -240,11 +352,18 @@ class StageOneTests(unittest.TestCase):
         with self.assertRaisesRegex(Invalid, 'Expected exactly fields'):
             local_graphs(bad_local, value, trace, dependencies)
         group_requests = [request for request in model.requests
-            if 'Group the immutable Agent turn nodes' in request['messages'][1]['content']]
-        self.assertEqual(len(group_requests), 1)
-        self.assertNotIn('AGENT TURN GRAPH', group_requests[0]['messages'][1]['content'])
-        self.assertNotIn('COMPLETE NORMALIZED TRAJECTORY',
-                         group_requests[0]['messages'][1]['content'])
+            if 'LOCAL GROUPING INPUT' in request['messages'][1]['content']]
+        self.assertGreater(len(group_requests), 1)
+        self.assertTrue(all('COMPLETE NORMALIZED TRAJECTORY' not in
+                            request['messages'][1]['content']
+                            for request in group_requests))
+        grouping_steps = [json.loads(line) for line in
+                          (self.out / 'grouping_steps.jsonl').read_text().splitlines()]
+        self.assertTrue(any(step['type'] == 'local_decision' for step in grouping_steps))
+        self.assertTrue(any(step['type'] == 'boundary_review' for step in grouping_steps))
+        self.assertTrue(any(step['type'] == 'round_end' and
+                            step['phase'] == 'merge-tasks' and step['reduction'] == 0
+                            for step in grouping_steps))
         calls = len(model.requests)
         run(self.args(), transport=model)
         self.assertEqual(len(model.requests), calls)
@@ -253,6 +372,64 @@ class StageOneTests(unittest.TestCase):
         self.input.write_text(json.dumps(data))
         with self.assertRaises(Invalid):
             run(self.args('--resume'), transport=model)
+
+    def test_grouping_expands_a_local_window_without_sending_the_full_trace(self):
+        model = ExpandingModel()
+        value, trace, _ = self.build(
+            model, '--merge-window', '2', '--merge-window-max', '4',
+            '--merge-lookback', '0')
+        tree(value, trace)
+        leaf_requests = [request for request in model.requests
+            if 'Decide the first leaf-task boundary' in request['messages'][0]['content']]
+        first_two = [json.loads(request['messages'][1]['content'].split(
+            'LOCAL GROUPING INPUT\n')[1]) for request in leaf_requests[:2]]
+        self.assertEqual([len(item['candidates']) for item in first_two], [2, 4])
+        self.assertEqual(first_two[0]['candidates'][0]['node_id'], 'event-0001')
+        self.assertTrue(first_two[0]['can_extend'])
+        self.assertFalse(any('thought' in card or 'source_refs' in card
+                             for item in first_two for card in item['candidates']))
+        steps = [json.loads(line) for line in
+                 (self.out / 'grouping_steps.jsonl').read_text().splitlines()]
+        decisions = [step for step in steps if step['type'] == 'local_decision'
+                     and step['anchor_id'] == 'event-0001']
+        self.assertEqual([step['response']['action'] for step in decisions[:2]],
+                         ['need_more_context', 'keep'])
+
+    def test_finite_lookback_shifts_only_the_latest_leaf_boundary(self):
+        model = BoundaryShiftModel()
+        value, trace, _ = self.build(model, '--merge-window', '4',
+                                     '--merge-window-max', '8',
+                                     '--merge-lookback', '1')
+        tree(value, trace)
+        first, second = value['root']['subtasks'][:2]
+        self.assertEqual([turn['event_id'] for turn in first['turns']], ['event-0001'])
+        self.assertEqual([turn['event_id'] for turn in second['turns']],
+                         ['event-0002', 'event-0003'])
+        reviews = [json.loads(line) for line in
+                   (self.out / 'grouping_steps.jsonl').read_text().splitlines()
+                   if json.loads(line)['type'] == 'boundary_review']
+        shifted = next(review for review in reviews
+                       if review['response']['action'] == 'shift_right')
+        self.assertEqual(shifted['before'],
+                         [['event-0001', 'event-0002'], ['event-0003']])
+        self.assertEqual(shifted['after'],
+                         [['event-0001'], ['event-0002', 'event-0003']])
+
+    def test_grouping_rejects_a_non_prefix_merge(self):
+        model = NonPrefixModel()
+        with self.assertRaisesRegex(InvalidResponse, 'continuous prefix'):
+            self.build(model, '--retries', '0')
+        self.assertFalse((self.out / 'execution_tree.json').exists())
+
+    def test_single_turn_is_promoted_into_the_root_without_a_unary_task(self):
+        data = fixture()
+        data['steps'] = data['steps'][:2]
+        self.input.write_text(json.dumps(data, ensure_ascii=False))
+        value, trace, _ = self.build(Model())
+        tree(value, trace)
+        self.assertEqual(value['root']['subtasks'], [])
+        self.assertEqual([turn['event_id'] for turn in value['root']['turns']],
+                         ['event-0001'])
 
     def test_invalid_split_stops_after_three_requests(self):
         data = fixture()
@@ -487,6 +664,12 @@ class StageOneTests(unittest.TestCase):
         dependency = next(request for request in model.requests
             if 'Identify which earlier tool-call results directly informed' in
                request['messages'][0]['content'])
+        grouping = next(request for request in model.requests
+            if 'Decide the first leaf-task boundary' in
+               request['messages'][0]['content'])
+        boundary = next(request for request in model.requests
+            if 'Review only the most recently formed boundary' in
+               request['messages'][0]['content'])
         explanation = next(request for request in model.requests
             if 'Write one concise review label for every supplied task' in
                request['messages'][0]['content'])
@@ -497,6 +680,11 @@ class StageOneTests(unittest.TestCase):
         self.assertEqual(dependency['thinking'], {'type': 'enabled'})
         self.assertEqual(dependency['reasoning_effort'], 'high')
         self.assertNotIn('temperature', dependency)
+        for request in (grouping, boundary):
+            self.assertEqual(request['max_tokens'], 32768)
+            self.assertEqual(request['thinking'], {'type': 'enabled'})
+            self.assertEqual(request['reasoning_effort'], 'high')
+            self.assertNotIn('temperature', request)
         self.assertEqual(explanation['max_tokens'], 32768)
         self.assertEqual(explanation['thinking'], {'type': 'enabled'})
         self.assertEqual(explanation['reasoning_effort'], 'high')
@@ -516,6 +704,9 @@ class StageOneTests(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 args = parser().parse_args(['build', '--input', str(self.input)])
             self.assertEqual(args.model, 'deepseek-flash')
+            self.assertEqual((args.merge_window, args.merge_window_max,
+                              args.merge_input_tokens, args.merge_lookback),
+                             (16, 64, 65536, 1))
             run(args, transport=Model())
             directory = self.base / 'runs/input'
             run(parser().parse_args(['render', '--input', str(directory)]))

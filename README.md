@@ -4,7 +4,7 @@
 
 项目已实现轨迹预处理、有序递归任务树、tool call 信息依赖识别、任务级依赖投影和离线 HTML 可视化。原始 trajectory 保持只读。
 
-阶段一当前仍由一次 `group-turns` 请求读取全部 Agent 回合并生成整棵任务树。本文在“阶段一”中同时记录当前实现和计划采用的局部分层归并方案，避免把待实现设计写成现有行为。
+阶段一使用局部窗口形成叶子任务，再对精简任务摘要进行分轮归并。每次请求只判断当前锚点附近的连续节点；有限回看用于修正刚形成的相邻任务边界。
 
 最终结构为：
 
@@ -38,6 +38,18 @@ python run.py render \
   --input ./runs/frontier-test
 ```
 
+阶段一归并参数可以按轨迹规模调整：
+
+```bash
+python run.py build \
+  --input ../trajectory.json \
+  --output ./runs/frontier-test \
+  --merge-window 16 \
+  --merge-window-max 64 \
+  --merge-input-tokens 65536 \
+  --merge-lookback 1
+```
+
 开发检查不调用真实模型：
 
 ```bash
@@ -58,10 +70,11 @@ node --check src/trajectory_graph/web/tree.js
 | `execution_tree.json` | 自底向上组合并通过程序校验的有序任务树 |
 | `dependency_evidence.json` | 每个目标 Agent 回合使用的更早 `tool_call_id` |
 | `local_graphs.json` | tool call→回合证据投影成的任务级局部依赖图及 DeepSeek 生成的边原因 |
-| `task_id_map.json` | 模型临时任务 ID 到稳定任务 ID 的映射 |
+| `task_id_map.json` | 程序归并阶段的临时任务 ID 到稳定任务 ID 的映射 |
 | `tree.html` | 可展开、聚焦和查看证据的离线页面 |
 | `preprocess_calls.jsonl` | query 提取和 observation 拆分请求记录 |
-| `execution_calls.jsonl` | Agent 回合标注、任务组合和依赖选择请求记录 |
+| `execution_calls.jsonl` | Agent 回合标注、局部任务归并、边界复核和依赖选择请求记录 |
+| `grouping_steps.jsonl` | 每轮 frontier、局部选择、边界复核和收敛过程 |
 | `cache/`、`checkpoint.json` | 已验证响应缓存和继续运行状态 |
 
 `build` 默认最大输出长度为 32768，默认上下文上限为 1048576，超时为 600 秒。语义请求开启 thinking；observation 起点识别关闭 thinking 并使用 `temperature=0`。响应截断、JSON 错误或程序校验失败时会携带错误重试；observation 拆分固定最多请求三次，其他阶段使用 `--retries`。
@@ -78,7 +91,7 @@ trajectory.json
 逐 event 生成固定 Agent 回合
     │
     ▼
-阶段一目标设计：局部形成叶子任务，再分轮归并为有序任务树
+阶段一：局部形成叶子任务，再分轮归并为有序任务树
     │
     ▼
 execution_tree.json
@@ -109,9 +122,7 @@ local_graphs.json → tree.html
 
 每个 `source: "agent"` event 固定为一个 Agent 回合。模型不能拆分、合并、遗漏、重复或移动其中的 tool call。
 
-DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个调用的简短结果。当前代码随后用一次请求读取根 query 和全部固定回合，直接返回完整任务树。轨迹较长时，这种调用会增加上下文长度和一次性结构判断的难度。
-
-计划把这一步改成以下局部分层归并流程。
+DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个调用的简短结果。程序随后执行以下局部分层归并流程。
 
 #### 1. 构造精简节点
 
@@ -125,15 +136,17 @@ DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个�
   "end_order": 3,
   "goal": "安装 OCR 和 PDF 提取工具",
   "status": "completed",
+  "completion_condition": null,
   "result": "tesseract-ocr 和 poppler-utils 已安装",
   "first_turn_goal": "安装所需工具",
   "last_turn_goal": "安装所需工具",
   "descendant_turn_count": 1,
-  "direct_child_count": 0
+  "direct_child_count": 0,
+  "evidence_event_ids": ["event-0003"]
 }
 ```
 
-原始 thought、完整 tool 参数、完整 observation 和 `source_refs` 留在程序侧。模型需要核对具体证据时，程序只补充当前局部窗口涉及的对应内容。
+原始 thought、完整 tool 参数、完整 observation 和 `source_refs` 留在程序侧，局部归并请求只发送精简卡片。卡片中的 `evidence_event_ids` 让模型选择代表性后代事件，程序再从已验证 Agent 回合复制精确证据。
 
 #### 2. 形成叶子任务
 
@@ -147,8 +160,8 @@ DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个�
 
 ```json
 {
-  "root_goal": "用户原始目标",
-  "phase": "form_leaf_tasks",
+  "root_goal": {"title": "用户任务标题", "text": "用户原始目标"},
+  "phase": "group-leaf",
   "round": 1,
   "left_context": null,
   "candidates": [
@@ -167,12 +180,15 @@ DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个�
 {
   "action": "merge",
   "member_ids": ["event-0002", "event-0003"],
-  "goal": "准备 OCR 和 PDF 文本提取工具",
-  "completion_condition": "所需工具可用",
-  "status": "completed",
-  "reason": "两个回合共同完成工具选择和安装",
-  "result": "已确认安装方式并完成工具安装",
-  "source_event_ids": ["event-0002", "event-0003"]
+  "task": {
+    "goal": "准备 OCR 和 PDF 文本提取工具",
+    "completion_condition": "所需工具可用",
+    "status": "completed",
+    "reason": "两个回合共同完成工具选择和安装",
+    "result": "已确认安装方式并完成工具安装",
+    "source_event_ids": ["event-0002", "event-0003"]
+  },
+  "review_flags": []
 }
 ```
 
@@ -220,15 +236,15 @@ frontier = next_frontier
 
 `K` 表示一次请求最多同时判断的候选节点数。一个最终任务可以包含超过 `K` 个 Agent 回合，因为它可以经过多轮归并形成。
 
-计划使用以下配置：
+默认使用以下配置：
 
 - 初始窗口 `K_initial` 默认设为 `16`；
 - 最大窗口 `K_max` 默认设为 `64`，并允许用户设置得更大；
-- 单次请求同时受序列化输入 token 预算限制；节点摘要较长时，程序减少实际候选数；
+- 单次请求同时受 `--merge-input-tokens` 的保守 UTF-8 容量预算限制；节点摘要较长时，程序减少实际候选数；
 - 模型返回 `need_more_context` 时，程序按 `16 → 32 → 64` 扩大窗口，直到找到边界、到达 frontier 末尾、达到 `K_max` 或触及输入预算；
-- 达到窗口限制仍无法判断时，本轮保留该锚点并记录不确定原因，不能静默截断或强制归并。
+- 达到窗口限制后，模型必须选择 `merge` 或 `keep`，并通过 `review_flags` 记录边界不确定性；程序不会静默截断输入。
 
-因此，`K=4` 可以用于当前这类短轨迹的调试，不作为所有任务的固定上限。实现时计划提供 `--merge-window`、`--merge-window-max` 和 `--merge-input-tokens` 配置项；这些参数目前尚未接入命令行。
+因此，`K=4` 可以用于当前这类短轨迹的调试，不作为所有任务的固定上限。`--merge-window`、`--merge-window-max` 和 `--merge-input-tokens` 可以在 `build` 时覆盖默认值。输入预算连一个精简节点都无法容纳时，程序明确中止并提示增大配置。
 
 #### 5. 有限回看与边界修正
 
@@ -259,7 +275,7 @@ frontier = next_frontier
 4. 到达本轮末尾后冻结最后一个 provisional task；
 5. 每条边界在当前层只复核一次，不能反复左右移动。
 
-程序校验移动数量不超过 `B`、两侧成员仍连续、顺序和覆盖不变。边界移动后若一侧只剩一个成员，程序直接保留该原节点，避免创建单子任务包装层；一侧将变为空时只接受 `merge_adjacent`。计划提供 `--merge-lookback` 配置项，允许长轨迹适当增大 `B`，同时保持 `B < K`。该参数目前尚未接入命令行。
+程序校验移动数量不超过 `B`、两侧成员仍连续、顺序和覆盖不变。边界移动后若一侧只剩一个成员，程序直接保留该原节点，避免创建单子任务包装层；一侧将变为空时只接受 `merge_adjacent`。`--merge-lookback` 可以调整 `B`，并要求 `0 ≤ B < K`；设为 `0` 可以关闭边界复核。
 
 #### 6. 收敛条件
 
@@ -274,12 +290,12 @@ frontier = next_frontier
 
 程序负责校验当前 frontier 成员资格、连续性、唯一性、区间并集、顺序、完整覆盖、每轮非重叠和无单子任务组合。模型只判断哪些相邻节点表达同一层级的任务目标，以及应当如何概括该任务。
 
-重构后新增 `grouping_steps.jsonl`，逐次记录：
+`grouping_steps.jsonl` 逐次记录：
 
 - 轮次、锚点、实际窗口大小和输入节点摘要；
 - 模型返回的 `merge`、`keep` 或 `need_more_context`；
 - 边界复核的动作、移动数量和复核理由；
-- 程序接受或拒绝该结果的原因；
+- 通过程序校验的模型结果；校验失败原因保存在 `execution_calls.jsonl`；
 - 归并前后的 frontier ID 列表和新任务摘要。
 
 任务树完成后再进入阶段二。阶段一只建立有序包含关系，不推断 tool call 信息依赖。
@@ -384,12 +400,14 @@ DeepSeek 只判断哪些更早 tool call 结果被当前回合直接使用、响
 | 提取根任务 | [extract_root_v1.md](src/trajectory_graph/prompts/extract_root_v1.md) | [extract_root_user.md](src/trajectory_graph/prompts/extract_root_user.md) |
 | 对齐聚合 observation | [align_observations_v1.md](src/trajectory_graph/prompts/align_observations_v1.md) | [align_observations_user.md](src/trajectory_graph/prompts/align_observations_user.md) |
 | 标注固定 Agent 回合 | [annotate_turn_v1.md](src/trajectory_graph/prompts/annotate_turn_v1.md) | [annotate_turn_user.md](src/trajectory_graph/prompts/annotate_turn_user.md) |
-| 当前阶段一：一次生成任务树 | [group_turns_v1.md](src/trajectory_graph/prompts/group_turns_v1.md)、[execution_format.md](src/trajectory_graph/prompts/execution_format.md) | [group_turns_user.md](src/trajectory_graph/prompts/group_turns_user.md) |
+| 阶段一任务摘要格式 | [task_summary_format.md](src/trajectory_graph/prompts/task_summary_format.md) | — |
+| 局部形成叶子任务 | [group_leaf_v1.md](src/trajectory_graph/prompts/group_leaf_v1.md) | [group_leaf_user.md](src/trajectory_graph/prompts/group_leaf_user.md) |
+| 分轮归并组合任务 | [merge_tasks_v1.md](src/trajectory_graph/prompts/merge_tasks_v1.md) | [merge_tasks_user.md](src/trajectory_graph/prompts/merge_tasks_user.md) |
+| 有限边界复核 | [review_boundary_v1.md](src/trajectory_graph/prompts/review_boundary_v1.md) | [review_boundary_user.md](src/trajectory_graph/prompts/review_boundary_user.md) |
+| 汇总根任务状态 | [finalize_root_v1.md](src/trajectory_graph/prompts/finalize_root_v1.md) | [finalize_root_user.md](src/trajectory_graph/prompts/finalize_root_user.md) |
 | 选择 tool call 信息来源 | [select_dependencies_v1.md](src/trajectory_graph/prompts/select_dependencies_v1.md) | [select_dependencies_user.md](src/trajectory_graph/prompts/select_dependencies_user.md) |
 | 生成任务依赖边原因 | [explain_dependencies_v1.md](src/trajectory_graph/prompts/explain_dependencies_v1.md) | [explain_dependencies_user.md](src/trajectory_graph/prompts/explain_dependencies_user.md) |
 | 校验失败后的统一重试 | [retry.md](src/trajectory_graph/prompts/retry.md) | — |
-
-局部分层归并实现时，会把当前 [group_turns_v1.md](src/trajectory_graph/prompts/group_turns_v1.md) 拆成叶子任务分段、组合任务归并和有限边界复核三类 prompt；新文件创建后再补充到上表。
 
 ## 程序校验
 
@@ -418,6 +436,7 @@ trajectory-graph/
 ├── src/trajectory_graph/
 │   ├── cli.py
 │   ├── normalize.py
+│   ├── grouping.py
 │   ├── dependencies.py
 │   ├── deepseek_client.py
 │   ├── validate.py
