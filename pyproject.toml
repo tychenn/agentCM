@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trajectory-graph"
+version = "0.1.0"
+description = "Evidence-backed hierarchical task dependency graphs from ATIF trajectories"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+trajectory-graph = "trajectory_graph.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+trajectory_graph = ["prompts/*.md", "web/*.css", "web/*.js"]

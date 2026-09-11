@@ -1,0 +1,429 @@
+# 基于有序任务树和局部依赖图的轨迹建图方案
+
+## 当前状态
+
+项目已实现轨迹预处理、有序递归任务树、tool call 信息依赖识别、任务级依赖投影和离线 HTML 可视化。原始 trajectory 保持只读。
+
+阶段一当前仍由一次 `group-turns` 请求读取全部 Agent 回合并生成整棵任务树。本文在“阶段一”中同时记录当前实现和计划采用的局部分层归并方案，避免把待实现设计写成现有行为。
+
+最终结构为：
+
+```text
+H = (T, {G_task})
+
+T         自底向上恢复的有序递归任务树
+G_task    一个组合任务的直属子任务信息依赖图
+```
+
+`T` 的数组顺序记录实际执行顺序。`G_task` 只记录有具体 tool call 证据的信息依赖，不把相邻执行顺序重复画成边。Agent 回合保留在叶子任务内部，按 trajectory 顺序排列，不作为主图依赖边的端点。
+
+## 运行
+
+需要 Python 3.10 或以上版本，无需安装第三方依赖。项目目录下的 `.env` 支持：
+
+- `DEEPSEEK_API_KEY`
+- `DEEPSEEK_MODEL`，默认 `deepseek-flash`
+- `DEEPSEEK_BASE_URL`，默认 `https://api.deepseek.com`
+
+正式实验由用户运行：
+
+```bash
+cd /home/cty/agentCM/trajectory-graph
+
+python run.py build \
+  --input ../trajectory.json \
+  --output ./runs/frontier-test
+
+python run.py render \
+  --input ./runs/frontier-test
+```
+
+开发检查不调用真实模型：
+
+```bash
+cd /home/cty/agentCM/trajectory-graph
+PYTHONPATH=src python -m unittest discover -s tests -v
+python -m py_compile run.py src/trajectory_graph/*.py
+node --check src/trajectory_graph/web/tree.js
+```
+
+旧版 `execution_tree.json` 使用混合 `items`，旧版 `turn_graph.json` 使用 frontier 和 `structure_parent_id`，不能直接交给新版 `render`。重新执行 `build` 后会生成新结构，并删除同一输出目录中的旧 `turn_graph.json` 或 `turn_links.json`。
+
+## 输出文件
+
+| 文件 | 内容 |
+| --- | --- |
+| `normalized_trace.json` | 规范化轨迹、原始 thought、tool call 参数和完整 observation |
+| `turn_nodes.json` | 每个固定 Agent 回合及简短 tool call 结果 |
+| `execution_tree.json` | 自底向上组合并通过程序校验的有序任务树 |
+| `dependency_evidence.json` | 每个目标 Agent 回合使用的更早 `tool_call_id` |
+| `local_graphs.json` | tool call→回合证据投影成的任务级局部依赖图及 DeepSeek 生成的边原因 |
+| `task_id_map.json` | 模型临时任务 ID 到稳定任务 ID 的映射 |
+| `tree.html` | 可展开、聚焦和查看证据的离线页面 |
+| `preprocess_calls.jsonl` | query 提取和 observation 拆分请求记录 |
+| `execution_calls.jsonl` | Agent 回合标注、任务组合和依赖选择请求记录 |
+| `cache/`、`checkpoint.json` | 已验证响应缓存和继续运行状态 |
+
+`build` 默认最大输出长度为 32768，默认上下文上限为 1048576，超时为 600 秒。语义请求开启 thinking；observation 起点识别关闭 thinking 并使用 `temperature=0`。响应截断、JSON 错误或程序校验失败时会携带错误重试；observation 拆分固定最多请求三次，其他阶段使用 `--retries`。
+
+## 两阶段处理流程
+
+```text
+trajectory.json
+    │
+    ▼
+预处理：query、event、tool call、observation 对齐
+    │
+    ▼
+逐 event 生成固定 Agent 回合
+    │
+    ▼
+阶段一目标设计：局部形成叶子任务，再分轮归并为有序任务树
+    │
+    ▼
+execution_tree.json
+    │
+    ▼
+阶段二：逐目标回合选择直接信息来源
+    │
+    ▼
+dependency_evidence.json
+    │
+    ▼
+程序投影到最深公共任务的直属子任务
+    │
+    ▼
+DeepSeek 为固定任务边生成简短原因
+    │
+    ▼
+local_graphs.json → tree.html
+```
+
+### 预处理
+
+程序保留 `source`、`step_id`、agent `message`、有效 tool 参数和 `tool_call_id`。agent `message` 规范化为 `thought`。固定的 parser warning 前缀会在 observation 开头被删除。
+
+一个 tool call 对应一个 observation 时，程序直接对齐。多个 tool call 共用聚合 observation 时，DeepSeek 只返回各段的精确开始锚点，程序复制和切分原文。锚点连续三次无法使原文完整分区时停止构建。
+
+### 阶段一：有序任务树
+
+每个 `source: "agent"` event 固定为一个 Agent 回合。模型不能拆分、合并、遗漏、重复或移动其中的 tool call。
+
+DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个调用的简短结果。当前代码随后用一次请求读取根 query 和全部固定回合，直接返回完整任务树。轨迹较长时，这种调用会增加上下文长度和一次性结构判断的难度。
+
+计划把这一步改成以下局部分层归并流程。
+
+#### 1. 构造精简节点
+
+程序先把每个 Agent 回合转换为不可拆分的 frontier 节点。发送给分组模型的卡片只保留划分任务所需的信息：
+
+```json
+{
+  "node_id": "event-0003",
+  "node_kind": "agent_turn",
+  "start_order": 3,
+  "end_order": 3,
+  "goal": "安装 OCR 和 PDF 提取工具",
+  "status": "completed",
+  "result": "tesseract-ocr 和 poppler-utils 已安装",
+  "first_turn_goal": "安装所需工具",
+  "last_turn_goal": "安装所需工具",
+  "descendant_turn_count": 1,
+  "direct_child_count": 0
+}
+```
+
+原始 thought、完整 tool 参数、完整 observation 和 `source_refs` 留在程序侧。模型需要核对具体证据时，程序只补充当前局部窗口涉及的对应内容。
+
+#### 2. 形成叶子任务
+
+程序从最左侧尚未处理的 Agent 回合开始，向右提供一个局部窗口。一次请求只判断锚点回合与其后连续候选是否共同完成一个局部目标。模型可以：
+
+- 选择包含锚点的连续前缀，长度为 `2～K`，形成一个叶子任务；
+- 保留锚点为单回合叶子任务；
+- 在当前窗口尚未看到任务右边界时请求扩展窗口。
+
+请求中带一个已定稿的左侧节点和一个候选窗口之外的右侧节点作为边界参考。这两个上下文节点只能用于判断，不能进入本次 `member_ids`：
+
+```json
+{
+  "root_goal": "用户原始目标",
+  "phase": "form_leaf_tasks",
+  "round": 1,
+  "left_context": null,
+  "candidates": [
+    {"node_id": "event-0001", "goal": "...", "result": "..."},
+    {"node_id": "event-0002", "goal": "...", "result": "..."}
+  ],
+  "right_context": {"node_id": "event-0003", "goal": "...", "result": "..."}
+}
+```
+
+同一目标下的重试、命令修正、分批读取以及对同类对象的连续检查应进入同一叶子任务。发生目标切换或已产生可独立验收的中间结果时结束当前叶子任务。
+
+模型只返回动作、连续成员 ID 和简短摘要，例如：
+
+```json
+{
+  "action": "merge",
+  "member_ids": ["event-0002", "event-0003"],
+  "goal": "准备 OCR 和 PDF 文本提取工具",
+  "completion_condition": "所需工具可用",
+  "status": "completed",
+  "reason": "两个回合共同完成工具选择和安装",
+  "result": "已确认安装方式并完成工具安装",
+  "source_event_ids": ["event-0002", "event-0003"]
+}
+```
+
+#### 3. 分轮归并组合任务
+
+叶子任务形成后，它们成为下一层 frontier。程序仍从左向右扫描，每次允许模型归并连续的 `2～K` 个 frontier 节点。归并成功后，程序创建一个组合任务，用新的精简摘要卡片替换这些节点；完整子节点继续保存在树中。
+
+每一轮只使用该轮开始时的 frontier 快照。已归并区间不能重叠，新生成的组合任务到下一轮才参与更高层归并。这样可以把同一层的局部判断固定下来，并保留确定的构建过程。
+
+组合任务需要满足：
+
+- 直属子任务至少有两个；
+- 子任务在当前 frontier 中连续且顺序不变；
+- 组合目标比父级目标具体，并由全部子任务共同支持；
+- 组合任务的区间等于直属子任务区间的并集；
+- 一个节点在一轮中最多被消费一次。
+
+模型返回内容与叶子归并相同，只把 `member_ids` 换成当前 frontier 中的任务 ID。`status`、`reason` 和 `result` 仍由 DeepSeek 根据当前窗口判断；程序校验其取值和证据归属。归并得到的新卡片继续保留节点类型、起止顺序、目标、状态、结果、首尾目标、后代回合数和直属子任务数量，供下一轮使用。
+
+每一轮的程序流程为：
+
+```text
+snapshot = 当前 frontier
+next_frontier = []
+i = 0
+
+while i < len(snapshot):
+    从 snapshot[i] 开始构造局部窗口
+    decision = DeepSeek(window)
+
+    if decision 是长度 m 的 merge:
+        校验并创建组合节点
+        next_frontier.append(组合节点)
+        i += m
+    else if decision 是 keep:
+        next_frontier.append(snapshot[i])
+        i += 1
+    else if decision 是 need_more_context:
+        在输入预算内扩大窗口并重新请求
+
+frontier = next_frontier
+```
+
+#### 4. `K`、窗口扩展与输入预算
+
+`K` 表示一次请求最多同时判断的候选节点数。一个最终任务可以包含超过 `K` 个 Agent 回合，因为它可以经过多轮归并形成。
+
+计划使用以下配置：
+
+- 初始窗口 `K_initial` 默认设为 `16`；
+- 最大窗口 `K_max` 默认设为 `64`，并允许用户设置得更大；
+- 单次请求同时受序列化输入 token 预算限制；节点摘要较长时，程序减少实际候选数；
+- 模型返回 `need_more_context` 时，程序按 `16 → 32 → 64` 扩大窗口，直到找到边界、到达 frontier 末尾、达到 `K_max` 或触及输入预算；
+- 达到窗口限制仍无法判断时，本轮保留该锚点并记录不确定原因，不能静默截断或强制归并。
+
+因此，`K=4` 可以用于当前这类短轨迹的调试，不作为所有任务的固定上限。实现时计划提供 `--merge-window`、`--merge-window-max` 和 `--merge-input-tokens` 配置项；这些参数目前尚未接入命令行。
+
+#### 5. 有限回看与边界修正
+
+局部前缀归并采用从左到右的决策顺序。为修正刚形成的任务边界，程序在提交相邻两个输出任务前增加一次有限边界复核。
+
+设回看宽度为 `B`，默认 `B=1`。每次复核只读取：
+
+- 左侧任务的摘要及其末尾最多 `B` 个直属成员；
+- 右侧任务的摘要及其开头最多 `B` 个直属成员；
+- 边界外左右各一个只读上下文节点。
+
+叶子任务阶段的直属成员是固定 Agent 回合；组合任务阶段的直属成员是当前 frontier 节点。回看只能移动这些完整成员，不能拆开 Agent 回合，也不能展开或重组 frontier 节点内部已经固定的子树。
+
+模型可以返回以下动作：
+
+- `keep_boundary`：保留当前边界；
+- `shift_left`：把右侧开头的 `1～B` 个成员移动到左侧；
+- `shift_right`：把左侧末尾的 `1～B` 个成员移动到右侧；
+- `merge_adjacent`：取消边界，把两侧合并成一个任务。
+
+例如当前两个任务的直属成员为 `[A, B] | [C, D]`，`B=1` 时，允许得到 `[A] | [B, C, D]`、`[A, B, C] | [D]`、保持原边界或合并全部成员。模型只返回动作、移动数量、理由以及受影响任务的新摘要；成员列表由程序根据动作复制和重建。
+
+边界复核采用以下提交规则：
+
+1. 新任务生成后先作为 provisional task；
+2. 下一个相邻任务生成后，模型复核这两个 provisional task 之间的边界；
+3. 复核完成后冻结左侧任务，右侧任务继续作为下一次复核的 provisional task；
+4. 到达本轮末尾后冻结最后一个 provisional task；
+5. 每条边界在当前层只复核一次，不能反复左右移动。
+
+程序校验移动数量不超过 `B`、两侧成员仍连续、顺序和覆盖不变。边界移动后若一侧只剩一个成员，程序直接保留该原节点，避免创建单子任务包装层；一侧将变为空时只接受 `merge_adjacent`。计划提供 `--merge-lookback` 配置项，允许长轨迹适当增大 `B`，同时保持 `B < K`。该参数目前尚未接入命令行。
+
+#### 6. 收敛条件
+
+一次局部请求返回“保留”只代表当前锚点没有合适的连续归并对象。程序必须完成整轮扫描：
+
+1. 一轮产生至少一次归并时，用新 frontier 开始下一轮；
+2. 完整一轮产生零次归并时停止；
+3. 停止时若 frontier 仍有多个节点，它们直接成为根任务的有序子任务；
+4. frontier 只剩一个节点时，程序把该节点内容提升到根任务，避免单子任务包装层。
+
+#### 7. 程序校验和可 review 记录
+
+程序负责校验当前 frontier 成员资格、连续性、唯一性、区间并集、顺序、完整覆盖、每轮非重叠和无单子任务组合。模型只判断哪些相邻节点表达同一层级的任务目标，以及应当如何概括该任务。
+
+重构后新增 `grouping_steps.jsonl`，逐次记录：
+
+- 轮次、锚点、实际窗口大小和输入节点摘要；
+- 模型返回的 `merge`、`keep` 或 `need_more_context`；
+- 边界复核的动作、移动数量和复核理由；
+- 程序接受或拒绝该结果的原因；
+- 归并前后的 frontier ID 列表和新任务摘要。
+
+任务树完成后再进入阶段二。阶段一只建立有序包含关系，不推断 tool call 信息依赖。
+
+所有层级仍遵守以下最终结构约束：
+
+- 叶子任务包含一个或多个相邻 Agent 回合；
+- 组合任务只包含至少两个相邻子任务；
+- 一个任务不能同时直接包含回合和子任务；
+- 所有叶子的深度优先顺序必须与 trajectory 完全一致；
+- 数组顺序直接表达任务和回合的执行顺序。
+
+模型只返回后代 `event_id` 作为任务证据选择。程序从已验证 Agent 回合复制精确 `source_refs`，根任务证据固定指向原始 query。
+
+保存后的任务结构为：
+
+```json
+{
+  "id": "task-0001",
+  "goal": "用户任务",
+  "status": "completed",
+  "reason": null,
+  "result": "结果摘要",
+  "source_refs": [],
+  "subtasks": [],
+  "turns": []
+}
+```
+
+叶子任务使用非空 `turns` 和空 `subtasks`；组合任务使用非空 `subtasks` 和空 `turns`。
+
+### 阶段二：信息依赖和任务投影
+
+任务树完成后，程序按 trajectory 顺序处理每个目标 Agent 回合。依赖请求读取：
+
+- 根 query；
+- 全部更早 Agent 回合；
+- 更早回合中每个 tool call 的输入、简短结果和完整 observation；
+- 当前目标回合的完整卡片。
+
+DeepSeek 只判断哪些更早 tool call 结果被当前回合直接使用、响应、验证、修复或用于选择具体行动。主题相似、时间相邻和一般背景不生成依赖。没有直接来源时允许空数组。
+
+最小证据格式为：
+
+```json
+{
+  "target_event_id": "event-0003",
+  "trigger_tool_call_ids": ["call_0_3", "call_1_2"]
+}
+```
+
+程序根据 `tool_call_id` 找到来源叶子任务，根据 `target_event_id` 找到目标叶子任务：
+
+1. 来源和目标在同一叶子任务时，不生成任务边；其中的 Agent 回合保持固定顺序。
+2. 来源和目标属于不同叶子任务时，找到两者最深公共任务。
+3. 将两端提升为该公共任务的两个直属子任务。
+4. 相同来源任务和目标任务的证据合并为一条边。
+5. 校验来源任务早于目标任务、调用属于来源任务、目标回合属于目标任务，并保证全部跨任务证据恰好投影一次。
+
+程序固定边的两端和证据后，一次请求把全部任务边及其原始证据交给 DeepSeek。模型只能为每条边补充一个不超过 100 个字符的 `reason`，不能增删、重排或改向边。原因需要说明来源任务产生了什么信息，以及目标任务如何使用、响应、验证或修复这些信息。
+
+`local_graphs.json` 的边结构为：
+
+```json
+{
+  "task_id": "task-0001",
+  "edges": [
+    {
+      "source_task_id": "task-0002",
+      "target_task_id": "task-0004",
+      "reason": "工具检查发现 OCR 组件缺失，因此后续任务安装相应软件包",
+      "evidence": [
+        {
+          "tool_call_id": "call_0_3",
+          "target_event_id": "event-0003"
+        }
+      ]
+    }
+  ]
+}
+```
+
+每个任务都有一条 `local_graphs` 记录，叶子任务和没有跨子任务依赖的组合任务使用空 `edges`。
+
+## 可视化
+
+页面默认展开全部任务和 Agent 回合；可以使用“收起子任务”按钮或任务右上角按钮折叠层级。黄色框表示任务，蓝色节点表示叶子任务内部的 Agent 回合。组合任务先根据直属子任务之间的信息依赖计算 DAG 层级：相邻任务层交替采用横向和纵向布局，同一依赖层中的分支沿垂直于主方向的方向展开。叶子任务内的 Agent 回合仍按编号从左向右排列。
+
+蓝色箭头只表示 `local_graphs.json` 中的信息依赖。相邻层依赖在来源与目标任务之间直接连线；跨层依赖沿黄色任务容器内侧的预留通道绕过中间节点。边标签显示 DeepSeek 生成的简短原因及对应 tool call 证据。
+
+黄色任务可以通过标题区域自由拖动，任务内部的所有子任务和 Agent 回合会随其一起移动；蓝色 Agent 回合也可以单独拖动。每次移动时，程序从最内层任务开始计算直属内容的包围盒，依次更新所有祖先黄色框的位置和大小。相关依赖边随后根据更新后的任务边界重新选择上下或左右连接位置。“适应画布”会根据调整后的全部节点范围重新居中和缩放。刷新页面会恢复自动布局。
+
+边标签直接显示 DeepSeek 生成的简短原因，并在下方显示具体 `tool_call_id` 或证据数量。点击任务、Agent 回合或依赖边会虚化无关内容；点击依赖边可在右侧查看完整原因、来源调用参数、完整 observation 和目标回合。折叠子任务后仍可查看父级局部图中的任务边。
+
+## DeepSeek Prompt 文件
+
+实际发送内容以 [src/trajectory_graph/prompts/](src/trajectory_graph/prompts/) 下的文件为准。程序将公共规则、对应阶段的 system prompt 和 user prompt 组合后发送给模型。
+
+| 用途 | System / 输出格式 | User |
+| --- | --- | --- |
+| 公共 JSON、证据和安全规则 | [common.md](src/trajectory_graph/prompts/common.md) | — |
+| 提取根任务 | [extract_root_v1.md](src/trajectory_graph/prompts/extract_root_v1.md) | [extract_root_user.md](src/trajectory_graph/prompts/extract_root_user.md) |
+| 对齐聚合 observation | [align_observations_v1.md](src/trajectory_graph/prompts/align_observations_v1.md) | [align_observations_user.md](src/trajectory_graph/prompts/align_observations_user.md) |
+| 标注固定 Agent 回合 | [annotate_turn_v1.md](src/trajectory_graph/prompts/annotate_turn_v1.md) | [annotate_turn_user.md](src/trajectory_graph/prompts/annotate_turn_user.md) |
+| 当前阶段一：一次生成任务树 | [group_turns_v1.md](src/trajectory_graph/prompts/group_turns_v1.md)、[execution_format.md](src/trajectory_graph/prompts/execution_format.md) | [group_turns_user.md](src/trajectory_graph/prompts/group_turns_user.md) |
+| 选择 tool call 信息来源 | [select_dependencies_v1.md](src/trajectory_graph/prompts/select_dependencies_v1.md) | [select_dependencies_user.md](src/trajectory_graph/prompts/select_dependencies_user.md) |
+| 生成任务依赖边原因 | [explain_dependencies_v1.md](src/trajectory_graph/prompts/explain_dependencies_v1.md) | [explain_dependencies_user.md](src/trajectory_graph/prompts/explain_dependencies_user.md) |
+| 校验失败后的统一重试 | [retry.md](src/trajectory_graph/prompts/retry.md) | — |
+
+局部分层归并实现时，会把当前 [group_turns_v1.md](src/trajectory_graph/prompts/group_turns_v1.md) 拆成叶子任务分段、组合任务归并和有限边界复核三类 prompt；新文件创建后再补充到上表。
+
+## 程序校验
+
+程序至少检查以下约束：
+
+- 每个 agent event 恰好生成一个 Agent 回合，所有原始 tool call 保持顺序；
+- 每个任务只使用 `subtasks` 或 `turns` 中的一种；
+- 每个组合任务至少有两个直属子任务；
+- 叶子任务中的回合连续，整棵树覆盖全部回合且顺序不变；
+- 任务 ID 唯一，根任务目标等于提取后的用户 query；
+- 模型只选择后代 event 作为任务证据，原文引用由程序复制；
+- dependency 只能引用更早的 tool call，ID 不重复且保持 trajectory 顺序；
+- 局部图边只能连接同一父任务的两个直属子任务，并从较早任务指向较晚任务；
+- 每条边的 tool call 属于来源任务，目标 event 属于目标任务；
+- 每项跨叶子任务证据恰好投影一次，叶子任务内部依赖不绘制任务边。
+- 每条最终任务边都有一个非空且不超过 100 个字符的模型原因，模型不能修改固定端点或顺序。
+
+任务划分和信息依赖包含语义判断，仍需结合轨迹 review。程序负责原文、顺序、归属、完整性和图结构校验。
+
+## 代码结构
+
+```text
+trajectory-graph/
+├── README.md
+├── run.py
+├── src/trajectory_graph/
+│   ├── cli.py
+│   ├── normalize.py
+│   ├── dependencies.py
+│   ├── deepseek_client.py
+│   ├── validate.py
+│   ├── render.py
+│   ├── prompts/
+│   └── web/
+├── runs/<input-stem>/
+└── tests/test_stage_one.py
+```
