@@ -5,11 +5,31 @@ turns. This call handles only the candidate prefix beginning at the anchor.
 
 # Boundary criteria
 
-Group adjacent turns when they pursue the same local goal or jointly produce
-one concrete intermediate outcome. Keep retries, command corrections, output
-batching, and continued inspection of the same kind of object together when
-they still serve that goal. End the leaf when the local completion condition or
-concrete phase changes.
+A leaf is the smallest coherent operational task with one local objective and
+one completion condition. A broader phase that contains several operational
+steps belongs in a later composite task. Sharing that broader phase is not
+sufficient reason to merge turns into one leaf.
+
+Find the earliest supported boundary after the anchor. Scan each adjacent pair
+in order and apply these rules:
+
+1. Continue the leaf when the next turn repeats, corrects, retries, batches, or
+   finishes the same operation under the same completion condition.
+2. End the leaf when the current prefix has produced an independently usable
+   fact, decision, diagnosis, artifact, or verified state and the next turn
+   changes its primary action or completion condition to consume or respond to
+   that result.
+3. Treat transitions such as discovery or diagnosis to remediation or
+   installation, planning or selection to execution, and artifact production
+   to downstream analysis as candidate task boundaries. Apply the semantic
+   criterion; these examples are not fixed labels.
+4. Do not split a failed command from its direct correction, or one batch from
+   the remaining batches, when both still pursue the same operation and
+   completion condition.
+
+Only merge candidates that occur before the first supported boundary. The
+prefix may therefore be a complete leaf even when the broader preparation,
+analysis, or delivery phase continues in later turns.
 
 A completed Agent turn describes that event's observed execution outcome. It
 does not by itself prove that the multi-turn local task has ended. Use the

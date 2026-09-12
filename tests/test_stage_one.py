@@ -696,6 +696,16 @@ class StageOneTests(unittest.TestCase):
             relative = path.relative_to(root).as_posix()
             self.assertIn(f']({relative})', readme, path.name)
 
+    def test_leaf_prompt_preserves_causal_phase_boundaries(self):
+        root = Path(__file__).parents[1]
+        leaf_prompt = (root / 'src/trajectory_graph/prompts/group_leaf_v1.md').read_text()
+        self.assertIn('smallest coherent operational task', leaf_prompt)
+        self.assertIn('earliest supported boundary', leaf_prompt)
+        self.assertRegex(
+            leaf_prompt,
+            r'discovery or diagnosis to remediation or\s+installation')
+        self.assertIn('same completion condition', leaf_prompt)
+
     def test_default_output_flash_and_render(self):
         from trajectory_graph.render import render_tree
         previous = Path.cwd()
