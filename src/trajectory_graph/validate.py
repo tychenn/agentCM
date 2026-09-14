@@ -72,29 +72,32 @@ def strings(value):
 
 
 class Evidence:
-    def __init__(self, trace):
+    def __init__(self, trace, node_evidence_field=None):
         self.trace = trace
+        self.node_evidence_field = node_evidence_field
         self.events = {e['event_id']: e for e in trace['events']}
         self.calls = {c['tool_call_id']: (e, c) for e in trace['events'] for c in e['tool_calls']}
 
     def refs(self, refs, event_id=None):
         require(isinstance(refs, list) and bool(refs), 'Node needs source evidence')
-        has_thought = False
+        has_node_evidence = False
         for ref in refs:
             keys(ref, 'event_id tool_call_id field quote')
             string(ref['quote'])
             eid, cid, field = ref['event_id'], ref['tool_call_id'], ref['field']
             if event_id is not None:
-                require(eid == event_id, 'Agent turn evidence must stay in its own event')
+                require(eid == event_id, 'Atomic-node evidence must stay in its own event')
             if eid == 'query':
                 require(cid is None and field == 'source_raw', 'Invalid query reference')
                 texts = [self.trace['query']['source_raw']]
             else:
                 require(isinstance(eid, str) and eid in self.events, 'Unknown event reference')
                 if cid is None:
-                    require(field == 'thought', 'Message reference must use thought')
-                    texts = [self.events[eid]['thought']]
-                    has_thought = True
+                    require(field == self.node_evidence_field and
+                            field in self.events[eid],
+                            f'Node-level reference must use {self.node_evidence_field}')
+                    texts = [self.events[eid][field]]
+                    has_node_evidence = True
                 else:
                     require(isinstance(cid, str) and cid in self.calls, 'Unknown call reference')
                     event, call = self.calls[cid]
@@ -103,42 +106,12 @@ class Evidence:
                     texts = strings(call['arguments']) if field == 'arguments' else [call['observation']['raw']]
             require(any(ref['quote'] in s for s in texts), 'Evidence quote does not match source')
         if event_id is not None:
-            require(has_thought, 'Agent turn needs current message evidence for its goal')
+            require(has_node_evidence,
+                    f'Atomic node needs current {self.node_evidence_field} evidence for its goal')
 
 
 TURN_STATUS = {'completed', 'failed', 'incomplete', 'uncertain'}
 TASK_STATUS = {'active', 'suspended', 'completed', 'failed', 'abandoned', 'uncertain'}
-
-
-def turn_annotations(value, trace):
-    keys(value, 'turns review_flags')
-    flags(value['review_flags'])
-    require(isinstance(value['turns'], list), 'turns must be an array')
-    evidence = Evidence(trace)
-    expected = [e['event_id'] for e in trace['events'] if e['source'] == 'agent']
-    actual = []
-    for turn in value['turns']:
-        keys(turn, 'event_id goal status result source_refs tool_calls')
-        string(turn['event_id'])
-        string(turn['goal'])
-        require(len(turn['goal']) <= 240, 'Turn goal exceeds 240 characters')
-        require(turn['status'] in TURN_STATUS, 'Invalid Agent turn status')
-        if turn['result'] is not None:
-            string(turn['result'])
-            require(len(turn['result']) <= 600, 'Turn result exceeds 600 characters')
-        evidence.refs(turn['source_refs'], turn['event_id'])
-        require(isinstance(turn['tool_calls'], list), 'tool_calls must be an array')
-        expected_calls = [call['tool_call_id'] for call in evidence.events[turn['event_id']]['tool_calls']]
-        actual_calls = []
-        for call in turn['tool_calls']:
-            keys(call, 'tool_call_id result')
-            actual_calls.append(call['tool_call_id'])
-            if call['result'] is not None:
-                string(call['result'])
-                require(len(call['result']) <= 300, 'Tool call result exceeds 300 characters')
-        require(actual_calls == expected_calls, 'Agent turn tool calls changed or reordered')
-        actual.append(turn['event_id'])
-    require(actual == expected, 'Agent turns must match all agent events exactly once and in order')
 
 
 def dependency_choice(value, target_event_id, prior_call_ids):
@@ -155,38 +128,16 @@ def dependency_choice(value, target_event_id, prior_call_ids):
             'trigger_tool_call_ids must not contain duplicates')
     prior_positions = {call_id: index for index, call_id in enumerate(prior_call_ids)}
     require(all(call_id in prior_positions for call_id in trigger_ids),
-            'Every trigger_tool_call_id must belong to a prior Agent turn')
+            'Every trigger_tool_call_id must belong to an eligible prior node')
     positions = [prior_positions[call_id] for call_id in trigger_ids]
     require(positions == sorted(positions),
             'trigger_tool_call_ids must follow prior trajectory order')
 
 
-def dependency_evidence(value, trace, canonical_turns):
-    keys(value, 'dependencies review_flags')
-    flags(value['review_flags'])
-    require(isinstance(value['dependencies'], list), 'dependencies must be an array')
-    agent_ids = [e['event_id'] for e in trace['events'] if e['source'] == 'agent']
-    canonical_ids = [turn['event_id'] for turn in canonical_turns]
-    require(canonical_ids == agent_ids, 'Canonical Agent turns do not match the trace')
-    require(len(value['dependencies']) == len(agent_ids),
-            'Dependency evidence needs exactly one record for every Agent turn')
-    prior_call_ids = []
-    for index, (expected_target, item) in enumerate(zip(agent_ids, value['dependencies'])):
-        if index == 0:
-            keys(item, 'target_event_id trigger_tool_call_ids')
-            require(item['target_event_id'] == expected_target and
-                    item['trigger_tool_call_ids'] == [],
-                    'First Agent turn must have no prior information dependency')
-        else:
-            dependency_choice(item, expected_target, prior_call_ids)
-        prior_call_ids.extend(
-            call['tool_call_id'] for call in canonical_turns[index]['tool_calls'])
-
-
-def expand_turn_refs(value, canonical_turns):
+def expand_turn_refs(value, canonical_nodes):
     """Replace model-returned event references with immutable program nodes."""
     result = copy.deepcopy(value)
-    canonical = {turn['event_id']: turn for turn in canonical_turns}
+    canonical = {node['event_id']: node for node in canonical_nodes}
     def walk(node):
         require(isinstance(node, dict), 'Invalid task')
         require(isinstance(node.get('subtasks'), list) and
@@ -211,11 +162,11 @@ def canonicalize_root(value, trace):
     return result
 
 
-def materialize_group_evidence(value, trace, canonical_turns):
+def materialize_group_evidence(value, trace, canonical_nodes):
     """Copy exact, already validated evidence after the model selects event IDs."""
     result = copy.deepcopy(value)
     keys(result, 'root review_flags')
-    canonical = {turn['event_id']: turn for turn in canonical_turns}
+    canonical = {node['event_id']: node for node in canonical_nodes}
 
     def walk(node, is_root=False):
         require(isinstance(node, dict), 'Invalid composite task')
@@ -223,7 +174,7 @@ def materialize_group_evidence(value, trace, canonical_turns):
         selected = node.pop('source_event_ids')
         require(isinstance(selected, list) and all(
             isinstance(event_id, str) and event_id in canonical for event_id in selected),
-            'source_event_ids must contain known Agent turn IDs')
+            'source_event_ids must contain known atomic-node IDs')
         require(len(selected) == len(set(selected)),
                 'source_event_ids must not contain duplicates')
         descendants = []
@@ -231,7 +182,7 @@ def materialize_group_evidence(value, trace, canonical_turns):
         require(isinstance(node['turn_event_ids'], list), 'turn_event_ids must be an array')
         has_subtasks, has_turns = bool(node['subtasks']), bool(node['turn_event_ids'])
         require(has_subtasks != has_turns,
-                'Each task must contain either subtasks or Agent turns')
+                'Each task must contain either subtasks or atomic nodes')
         if has_subtasks:
             require(len(node['subtasks']) >= 2,
                     'Composite task needs at least two direct subtasks')
@@ -264,55 +215,32 @@ def materialize_group_evidence(value, trace, canonical_turns):
     return result
 
 
-def expand_grouping(value, trace, canonical_turns):
-    """Turn the model's compact grouping into the fully evidenced saved tree."""
-    result = canonicalize_root(value, trace)
-    result = materialize_group_evidence(result, trace, canonical_turns)
-    result = expand_turn_refs(result, canonical_turns)
-    tree(result, trace, canonical_turns)
-    return result
-
-
 def tasks(node):
     yield node
     for child in node['subtasks']:
         yield from tasks(child)
 
 
-def agent_turns(node):
-    for turn in node['turns']:
-        yield turn
+def atomic_nodes(node):
+    for atomic_node in node['turns']:
+        yield atomic_node
     for child in node['subtasks']:
-        yield from agent_turns(child)
+        yield from atomic_nodes(child)
 
 
-def _validate_atomic(turn, evidence):
-    keys(turn, 'event_id goal status result source_refs tool_calls')
-    eid = turn['event_id']
-    require(isinstance(eid, str) and eid in evidence.events, 'Unknown atomic event')
-    event = evidence.events[eid]
-    require(event['source'] == 'agent', 'Only agent events can be Agent turns')
-    string(turn['goal'])
-    require(turn['status'] in TURN_STATUS, 'Invalid Agent turn status')
-    if turn['result'] is not None:
-        string(turn['result'])
-    evidence.refs(turn['source_refs'], eid)
-    require(isinstance(turn['tool_calls'], list), 'tool_calls must be an array')
-    for call in turn['tool_calls']:
-        keys(call, 'tool_call_id result')
-        if call['result'] is not None:
-            string(call['result'])
-    require([c['tool_call_id'] for c in turn['tool_calls']] ==
-            [c['tool_call_id'] for c in event['tool_calls']],
-            'Agent turn must contain all and only its original tool calls in order')
+# Compatibility name for the persisted schema, whose atomic-node array remains
+# named ``turns`` so existing Terminal-Bench 2.0 artifacts stay readable.
+agent_turns = atomic_nodes
 
 
-def tree(value, trace, canonical_turns=None):
+def tree(value, trace, canonical_nodes=None, *, atomic_validator,
+         node_evidence_field):
     keys(value, 'root review_flags')
     flags(value['review_flags'])
-    evidence = Evidence(trace)
+    evidence = Evidence(trace, node_evidence_field=node_evidence_field)
     ids, turns_seen = set(), []
-    canonical = {t['event_id']: t for t in canonical_turns} if canonical_turns is not None else None
+    canonical = ({node['event_id']: node for node in canonical_nodes}
+                 if canonical_nodes is not None else None)
     def visit(node, is_root=False):
         keys(node, 'id goal status reason result source_refs subtasks turns')
         string(node['id'])
@@ -332,7 +260,7 @@ def tree(value, trace, canonical_turns=None):
         require(isinstance(node['turns'], list), 'turns must be an array')
         has_subtasks, has_turns = bool(node['subtasks']), bool(node['turns'])
         require(has_subtasks != has_turns,
-                'Each task must contain either subtasks or Agent turns')
+                'Each task must contain either subtasks or atomic nodes')
         if has_subtasks:
             require(len(node['subtasks']) >= 2,
                     'Composite task needs at least two direct subtasks')
@@ -340,16 +268,16 @@ def tree(value, trace, canonical_turns=None):
                 require(isinstance(child, dict), 'Invalid child task')
                 visit(child)
         else:
-            for turn in node['turns']:
-                require(isinstance(turn, dict), 'Invalid Agent turn')
-                _validate_atomic(turn, evidence)
+            for atomic_node in node['turns']:
+                require(isinstance(atomic_node, dict), 'Invalid atomic node')
+                atomic_validator(atomic_node, evidence)
                 if canonical is not None:
-                    require(turn == canonical.get(turn['event_id']),
-                            'Agent turn was changed while grouping')
-                turns_seen.append(turn['event_id'])
+                    require(atomic_node == canonical.get(atomic_node['event_id']),
+                            'Atomic node was changed while grouping')
+                turns_seen.append(atomic_node['event_id'])
     visit(value['root'], True)
     expected = [e['event_id'] for e in trace['events'] if e['source'] == 'agent']
-    require(turns_seen == expected, 'Agent turns omitted, duplicated, or reordered')
+    require(turns_seen == expected, 'Atomic nodes omitted, duplicated, or reordered')
 
 def stable_ids(value):
     result = copy.deepcopy(value)
@@ -392,7 +320,7 @@ def local_graphs(value, execution_tree, trace, dependencies=None, require_reason
     evidence = Evidence(trace)
     event_order = {event['event_id']: index for index, event in enumerate(trace['events'])}
     descendant_turns = {
-        task['id']: [turn['event_id'] for turn in agent_turns(task)]
+        task['id']: [node['event_id'] for node in atomic_nodes(task)]
         for task in ordered_tasks
     }
     seen_evidence = []

@@ -1,40 +1,13 @@
 """Select, project, and explain task information dependencies."""
 import copy
 
-from .validate import (agent_turns, dependency_choice, dependency_evidence,
-                       dependency_reasons, local_graphs, require, tasks)
+from .validate import (atomic_nodes, dependency_choice, dependency_reasons,
+                       local_graphs, require, tasks)
 
 
-def _call_input(call):
-    arguments = call['arguments']
-    if call['tool_name'] == 'bash_command' and isinstance(arguments.get('keystrokes'), str):
-        return arguments['keystrokes']
-    return arguments
-
-
-def _turn_card(turn, events):
-    event = events[turn['event_id']]
-    source_calls = {call['tool_call_id']: call for call in event['tool_calls']}
-    return {
-        'event_id': turn['event_id'],
-        'thought': event['thought'],
-        'goal': turn['goal'],
-        'status': turn['status'],
-        'result': turn['result'],
-        'tool_calls': [
-            {
-                'tool_call_id': call['tool_call_id'],
-                'tool_name': source_calls[call['tool_call_id']]['tool_name'],
-                'input': _call_input(source_calls[call['tool_call_id']]),
-                'result': call['result'],
-                'observation': source_calls[call['tool_call_id']]['observation']['raw'],
-            }
-            for call in turn['tool_calls']
-        ],
-    }
-
-
-def build_dependency_evidence(trace, turns, client):
+def build_dependency_evidence(
+        trace, turns, client, *, card_builder, eligible_prior, system_prompt,
+        user_prompt, evidence_validator):
     """Ask only which earlier tool results directly inform each later turn."""
     events = {event['event_id']: event for event in trace['events']}
     records = []
@@ -43,7 +16,11 @@ def build_dependency_evidence(trace, turns, client):
         if index == 0:
             choice = {'target_event_id': target_event_id, 'trigger_tool_call_ids': []}
         else:
-            prior_turns = [_turn_card(prior, events) for prior in turns[:index]]
+            prior_turns = [
+                card_builder(prior, events)
+                for prior in turns[:index]
+                if eligible_prior(events[prior['event_id']], events[target_event_id])
+            ]
             prior_call_ids = [
                 call['tool_call_id']
                 for prior in prior_turns
@@ -51,15 +28,15 @@ def build_dependency_evidence(trace, turns, client):
             ]
             if prior_call_ids:
                 choice = client.ask(
-                    f'depend-{target_event_id}', ['select_dependencies_v1'],
-                    'select_dependencies_user',
+                    f'depend-{target_event_id}', [system_prompt],
+                    user_prompt,
                     {
                         'root_query_json': {
                             'title': trace['query']['title'],
                             'text': trace['query']['text'],
                         },
                         'prior_turns_json': prior_turns,
-                        'target_turn_json': _turn_card(turn, events),
+                        'target_turn_json': card_builder(turn, events),
                     },
                     lambda value, target=target_event_id, calls=prior_call_ids:
                         dependency_choice(value, target, calls),
@@ -73,13 +50,15 @@ def build_dependency_evidence(trace, turns, client):
         selected = ', '.join(choice['trigger_tool_call_ids']) or '无直接来源'
         print(f'[{target_event_id}] 信息依赖：{selected}', flush=True)
     result = {'dependencies': records, 'review_flags': []}
-    dependency_evidence(result, trace, turns)
+    evidence_validator(result, trace, turns)
     return result
 
 
-def project_local_graphs(execution_tree, dependency_data, trace):
+def project_local_graphs(execution_tree, dependency_data, trace, *,
+                         evidence_validator):
     """Lift exact call-to-turn evidence to sibling tasks at its lowest scope."""
-    dependency_evidence(dependency_data, trace, list(agent_turns(execution_tree['root'])))
+    evidence_validator(
+        dependency_data, trace, list(atomic_nodes(execution_tree['root'])))
     ordered_tasks = list(tasks(execution_tree['root']))
     parent = {}
     leaf_owner = {}
@@ -90,7 +69,7 @@ def project_local_graphs(execution_tree, dependency_data, trace):
         if task['turns']:
             for turn in task['turns']:
                 require(turn['event_id'] not in leaf_owner,
-                        'Agent turn belongs to more than one leaf task')
+                        'Atomic node belongs to more than one leaf task')
                 leaf_owner[turn['event_id']] = task['id']
         for child in task['subtasks']:
             index_task(child, task['id'])
@@ -154,7 +133,9 @@ def project_local_graphs(execution_tree, dependency_data, trace):
     return result
 
 
-def add_dependency_reasons(execution_tree, skeleton, dependency_data, trace, client):
+def add_dependency_reasons(
+        execution_tree, skeleton, dependency_data, trace, client, *,
+        target_context):
     """Have DeepSeek write one concise reason for every fixed task edge."""
     local_graphs(skeleton, execution_tree, trace, dependency_data,
                  require_reasons=False)
@@ -168,7 +149,7 @@ def add_dependency_reasons(execution_tree, skeleton, dependency_data, trace, cli
         return skeleton
 
     task_by_id = {task['id']: task for task in tasks(execution_tree['root'])}
-    turn_by_id = {turn['event_id']: turn for turn in agent_turns(execution_tree['root'])}
+    turn_by_id = {node['event_id']: node for node in atomic_nodes(execution_tree['root'])}
     event_by_id = {event['event_id']: event for event in trace['events']}
     calls = {
         call['tool_call_id']: (event, call)
@@ -196,7 +177,7 @@ def add_dependency_reasons(execution_tree, skeleton, dependency_data, trace, cli
             brief_result = next(
                 item['result'] for item in source_turn['tool_calls']
                 if item['tool_call_id'] == call_id)
-            evidence_cards.append({
+            evidence_card = {
                 'tool_call_id': call_id,
                 'source_event_id': source_event['event_id'],
                 'source_turn_goal': source_turn['goal'],
@@ -204,8 +185,9 @@ def add_dependency_reasons(execution_tree, skeleton, dependency_data, trace, cli
                 'observation': call['observation']['raw'],
                 'target_event_id': target_event_id,
                 'target_turn_goal': target_turn['goal'],
-                'target_thought': event_by_id[target_event_id]['thought'],
-            })
+            }
+            evidence_card.update(target_context(event_by_id[target_event_id]))
+            evidence_cards.append(evidence_card)
         supplied_edges.append({
             'source_task': task_card(edge['source_task_id']),
             'target_task': task_card(edge['target_task_id']),

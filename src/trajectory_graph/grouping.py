@@ -1,7 +1,7 @@
 """Build an ordered task tree through bounded local bottom-up grouping."""
 import copy
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .deepseek_client import CapacityError, encoded
@@ -28,10 +28,11 @@ class Unit:
     turn_event_ids: tuple
     evidence_event_ids: tuple
     direct_child_count: int
+    adapter_fields: dict = field(default_factory=dict)
     task: object = None
 
     def card(self):
-        return {
+        result = {
             'node_id': self.node_id,
             'node_kind': self.node_kind,
             'start_order': self.start_order,
@@ -46,6 +47,8 @@ class Unit:
             'direct_child_count': self.direct_child_count,
             'evidence_event_ids': list(self.evidence_event_ids),
         }
+        result.update(self.adapter_fields)
+        return result
 
 
 @dataclass
@@ -106,7 +109,7 @@ def _summary(value, descendant_ids, available_evidence_ids):
     _nullable_string(value['result'], 'Task result', 600)
     _ordered_subset(value['source_event_ids'], available_evidence_ids, 'source_event_ids')
     require(set(value['source_event_ids']).issubset(descendant_ids),
-            'Task evidence must belong to its descendant Agent turns')
+            'Task evidence must belong to its descendant atomic nodes')
 
 
 def _review_flags(value):
@@ -130,7 +133,7 @@ def _prefix_decision(value, candidates, *, leaf, can_extend):
                 'keep must select only the anchor node')
         if leaf:
             require(isinstance(value['task'], dict),
-                    'A single-turn leaf needs a task summary')
+                    'A single-node leaf needs a task summary')
         else:
             require(value['task'] is None,
                     'Keeping an existing task must return task null')
@@ -201,16 +204,20 @@ def _root_summary(value):
     _review_flags(value['review_flags'])
 
 
-def _atomic_units(turns):
+def atomic_units(nodes, *, node_kind, adapter_fields=None):
+    """Create immutable frontier units from adapter-owned node annotations."""
+    adapter_fields = adapter_fields or (lambda node: {})
     result = []
-    for order, turn in enumerate(turns, 1):
+    for order, node in enumerate(nodes, 1):
         result.append(Unit(
-            node_id=turn['event_id'], node_kind='agent_turn',
-            start_order=order, end_order=order, goal=turn['goal'],
-            status=turn['status'], result=turn['result'], completion_condition=None,
-            first_turn_goal=turn['goal'], last_turn_goal=turn['goal'],
-            turn_event_ids=(turn['event_id'],), evidence_event_ids=(turn['event_id'],),
-            direct_child_count=0, task=None,
+            node_id=node['event_id'],
+            node_kind=node_kind,
+            start_order=order, end_order=order, goal=node['goal'],
+            status=node['status'], result=node['result'], completion_condition=None,
+            first_turn_goal=node['goal'], last_turn_goal=node['goal'],
+            turn_event_ids=(node['event_id'],), evidence_event_ids=(node['event_id'],),
+            direct_child_count=0,
+            adapter_fields=dict(adapter_fields(node)), task=None,
         ))
     return result
 
@@ -223,7 +230,7 @@ def _task_unit(summary, members, *, leaf, ids):
     require(bool(members), 'Cannot create an empty task')
     if leaf:
         require(all(member.task is None for member in members),
-                'Leaf tasks can contain only Agent turns')
+                'Leaf tasks can contain only atomic nodes')
         subtasks = []
         turn_ids = [member.node_id for member in members]
         kind = 'leaf_task'
@@ -307,7 +314,8 @@ def _fit_window(root_goal, phase, round_number, left_context, snapshot,
 
 
 def _request_block(client, log, root_goal, phase, round_number, snapshot,
-                   start, blocks, initial, maximum, budget, leaf, ids):
+                   start, blocks, initial, maximum, budget, leaf, ids,
+                   leaf_prompt, leaf_user_prompt):
     desired = min(initial, len(snapshot) - start)
     while True:
         left_context = blocks[-1].unit if blocks else None
@@ -317,8 +325,8 @@ def _request_block(client, log, root_goal, phase, round_number, snapshot,
         candidates = snapshot[start:start + count]
         print(f'[{phase}] 第 {round_number} 轮：锚点 {candidates[0].node_id}，'
               f'候选 {count} 个', flush=True)
-        parts = ['task_summary_format', 'group_leaf_v1' if leaf else 'merge_tasks_v1']
-        user_prompt = 'group_leaf_user' if leaf else 'merge_tasks_user'
+        parts = ['task_summary_format', leaf_prompt if leaf else 'merge_tasks_v1']
+        user_prompt = leaf_user_prompt if leaf else 'merge_tasks_user'
         name = f'{phase}-r{round_number:02d}-i{start:05d}-k{count:03d}'
         response = client.ask(
             name, parts, user_prompt, {'grouping_input_json': data},
@@ -430,7 +438,8 @@ def _review_boundary(client, log, root_goal, phase, round_number,
 
 
 def _group_pass(client, log, root_goal, snapshot, *, phase, round_number,
-                initial, maximum, budget, lookback, leaf, ids):
+                initial, maximum, budget, lookback, leaf, ids,
+                leaf_prompt, leaf_user_prompt):
     log.add({'type': 'round_start', 'phase': phase, 'round': round_number,
              'frontier': [unit.node_id for unit in snapshot]})
     blocks, collected_flags = [], []
@@ -438,7 +447,8 @@ def _group_pass(client, log, root_goal, snapshot, *, phase, round_number,
     while start < len(snapshot):
         block, decision_flags = _request_block(
             client, log, root_goal, phase, round_number, snapshot,
-            start, blocks, initial, maximum, budget, leaf, ids)
+            start, blocks, initial, maximum, budget, leaf, ids,
+            leaf_prompt, leaf_user_prompt)
         collected_flags.extend(decision_flags)
         start += len(block.members)
         if not blocks:
@@ -461,14 +471,14 @@ def _group_pass(client, log, root_goal, snapshot, *, phase, round_number,
     return output, collected_flags
 
 
-def build_task_tree(trace, canonical_turns, client, *, window=16,
-                    window_max=64, input_tokens=65536, lookback=1):
+def build_task_tree(trace, client, *, window=16,
+                    window_max=64, input_tokens=65536, lookback=1,
+                    atomic, leaf_prompt, leaf_user_prompt):
     """Return the compact recursive grouping consumed by expand_grouping."""
     require(2 <= window <= window_max, 'Require 2 <= merge window <= merge window max')
     require(input_tokens > 0, 'merge input token budget must be positive')
     require(0 <= lookback < window, 'Require 0 <= merge lookback < merge window')
-    atomic = _atomic_units(canonical_turns)
-    require(bool(atomic), 'Cannot build a task tree without Agent turns')
+    require(bool(atomic), 'Cannot build a task tree without atomic nodes')
     ids = IdFactory()
     log = StepLog(client.directory / 'grouping_steps.jsonl', client)
     root_goal = {'title': trace['query']['title'], 'text': trace['query']['text']}
@@ -476,14 +486,16 @@ def build_task_tree(trace, canonical_turns, client, *, window=16,
     frontier, review_flags = _group_pass(
         client, log, root_goal, atomic, phase='group-leaf', round_number=1,
         initial=window, maximum=window_max, budget=input_tokens,
-        lookback=lookback, leaf=True, ids=ids)
+        lookback=lookback, leaf=True, ids=ids,
+        leaf_prompt=leaf_prompt, leaf_user_prompt=leaf_user_prompt)
 
     round_number = 1
     while len(frontier) > 1:
         next_frontier, round_flags = _group_pass(
             client, log, root_goal, frontier, phase='merge-tasks',
             round_number=round_number, initial=window, maximum=window_max,
-            budget=input_tokens, lookback=lookback, leaf=False, ids=ids)
+            budget=input_tokens, lookback=lookback, leaf=False, ids=ids,
+            leaf_prompt=leaf_prompt, leaf_user_prompt=leaf_user_prompt)
         review_flags.extend(round_flags)
         if len(next_frontier) == len(frontier):
             frontier = next_frontier

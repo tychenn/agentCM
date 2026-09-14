@@ -34,5 +34,9 @@ characters, the turn result within 600 characters, and each call result within
 with an empty observation has result null. source_refs must cite exact
 current-event thought evidence for the goal and current-event tool evidence for
 a non-null result. References may only point to this event and its tool calls.
+Use {"event_id":"input event ID","tool_call_id":null,"field":"thought",
+"quote":"exact source text"} for thought evidence. Use an input tool_call_id
+and field "arguments" or "observation.raw" for tool evidence. Quotes must match
+the referenced thought, observation, or a string value in arguments.
 Do not copy tool arguments or observation text into result except for the short
 information needed to identify the outcome.

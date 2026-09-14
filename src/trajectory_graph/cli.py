@@ -8,11 +8,7 @@ from pathlib import Path
 from .adapters import ADAPTERS, get_adapter
 from .deepseek_client import Client, save
 from .config import load_env
-from .dependencies import (add_dependency_reasons, build_dependency_evidence,
-                           project_local_graphs)
-from .grouping import build_task_tree
-from .validate import (Invalid, expand_grouping, require, stable_ids,
-                       strict_json, tree)
+from .validate import Invalid, require, stable_ids, strict_json
 
 
 DEFAULT_ADAPTER = 'terminal-bench-2.0'
@@ -35,7 +31,8 @@ def parser():
         command = sub.add_parser(name, help=help_text)
         command.add_argument('--input', required=True, type=Path)
         add_adapter_argument(command)
-        command.add_argument('--output', type=Path, help='默认保存到 runs/<输入文件名>/；normalize 可指定 JSON 文件')
+        command.add_argument('--output', type=Path,
+                             help='默认保存到 runs/<适配器>/<输入文件名>/；normalize 可指定 JSON 文件')
         command.add_argument('--resume', action='store_true', default=True, help=argparse.SUPPRESS)
         command.add_argument('--model', default=os.environ.get('DEEPSEEK_MODEL', 'deepseek-flash'))
         command.add_argument('--base-url', default=os.environ.get('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'))
@@ -74,15 +71,16 @@ def run(args, transport=None):
     if args.command == 'validate':
         value = strict_json(args.tree.read_text(encoding='utf-8'))
         trace = strict_json(args.trace.read_text(encoding='utf-8'))
-        tree(value, trace)
+        adapter = get_adapter(trace.get('source', {}).get('adapter'))
+        adapter.validate_tree(value, trace)
         print('校验通过')
         return
     adapter = get_adapter(args.adapter)
     original, source = adapter.load(args.input)
     prepared, input_flags = adapter.prepare(original)
     if args.command == 'inspect':
-        print(f"adapter: {adapter.NAME}; query: 1; events: {len(prepared)}; "
-              f"agent events: {sum(e['source'] == 'agent' for e, _ in prepared)}; "
+        print(f"adapter: {adapter.NAME}; query: 1; source-derived events: {len(prepared)}; "
+              f"atomic nodes: {sum(e['source'] == 'agent' for e, _ in prepared)}; "
               f"tool calls: {sum(len(e['tool_calls']) for e, _ in prepared)}")
         print('SHA-256: ' + source['sha256'])
         for flag in input_flags:
@@ -132,19 +130,19 @@ def run(args, transport=None):
                 'turns': turn_nodes, 'review_flags': annotations['review_flags']})
             state['stage'] = 'turns_annotated'
             save(checkpoint, state)
-            grouped_refs = build_task_tree(
+            grouped_refs = adapter.build_task_tree(
                 trace, turn_nodes, client,
                 window=args.merge_window,
                 window_max=args.merge_window_max,
                 input_tokens=args.merge_input_tokens,
                 lookback=args.merge_lookback,
             )
-            final = expand_grouping(grouped_refs, trace, turn_nodes)
+            final = adapter.expand_grouping(grouped_refs, trace, turn_nodes)
             final, mapping = stable_ids(final)
             final['review_flags'] = list(dict.fromkeys(
                 trace['review_flags'] + annotations['review_flags'] +
                 final['review_flags']))
-            tree(final, trace, turn_nodes)
+            adapter.validate_tree(final, trace, turn_nodes)
             save(directory / 'task_id_map.json', mapping)
             save(directory / 'execution_tree.json', final)
             for stale_name in ('dependency_evidence.json', 'local_graphs.json'):
@@ -153,12 +151,14 @@ def run(args, transport=None):
                     stale_path.unlink()
             state['stage'] = 'task_tree_built'
             save(checkpoint, state)
-            dependencies = build_dependency_evidence(trace, turn_nodes, client)
+            dependencies = adapter.build_dependency_evidence(
+                trace, turn_nodes, client)
             save(directory / 'dependency_evidence.json', dependencies)
             state['stage'] = 'dependencies_selected'
             save(checkpoint, state)
-            graph_skeleton = project_local_graphs(final, dependencies, trace)
-            graphs = add_dependency_reasons(
+            graph_skeleton = adapter.project_local_graphs(
+                final, dependencies, trace)
+            graphs = adapter.add_dependency_reasons(
                 final, graph_skeleton, dependencies, trace, client)
             save(directory / 'local_graphs.json', graphs)
             for legacy_name in ('turn_graph.json', 'turn_links.json'):

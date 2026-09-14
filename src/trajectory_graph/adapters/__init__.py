@@ -1,10 +1,11 @@
 """Versioned input adapters for supported trajectory corpora."""
 
-from . import terminal_bench_2_0
+from . import terminal_bench_2_0, terminal_bench_4_0
 
 
 ADAPTERS = {
     terminal_bench_2_0.NAME: terminal_bench_2_0,
+    terminal_bench_4_0.NAME: terminal_bench_4_0,
 }
 
 

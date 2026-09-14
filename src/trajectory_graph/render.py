@@ -3,8 +3,8 @@ import html
 import json
 from pathlib import Path
 
-from .validate import (agent_turns, local_graphs as validate_local_graphs,
-                       require, strict_json, tasks, tree)
+from .validate import (atomic_nodes, local_graphs as validate_local_graphs,
+                       require, strict_json, tasks)
 
 
 def escape(value):
@@ -17,7 +17,13 @@ def render_tree(tree_path, trace_path, output, local_graph_path=None):
             'HTML output must not overwrite tree or trace')
     value = strict_json(tree_path.read_text(encoding='utf-8'))
     trace = strict_json(trace_path.read_text(encoding='utf-8'))
-    tree(value, trace)
+    from .adapters import get_adapter
+    adapter_name = trace.get('source', {}).get('adapter')
+    require(isinstance(adapter_name, str),
+            'normalized_trace.json is missing source.adapter')
+    adapter = get_adapter(adapter_name)
+    adapter.validate_tree(value, trace)
+    profile = adapter.render_profile
     local_graph_path = (Path(local_graph_path) if local_graph_path is not None else
                         tree_path.parent / 'local_graphs.json')
     graph_missing = not local_graph_path.exists()
@@ -57,18 +63,20 @@ def render_tree(tree_path, trace_path, output, local_graph_path=None):
         ]
         turn_nodes.append(dict(
             id=turn['event_id'], goal=turn['goal'], status=statuses[turn['status']],
-            state=turn['status'], label=f'回合 {event["step_id"]}',
+            state=turn['status'], label=profile.node_label(event),
             owner_group_id=owner_id, order=order,
             actions=len(turn['tool_calls']), calls=call_rows))
         section = [
             f'<section class="task-detail" id="detail-{escape(turn["event_id"])}" hidden>',
-            f'<small>{escape(path)} · Agent 回合 · step {escape(event["step_id"])}</small>',
+            f'<small>{escape(path)} · {profile.ATOMIC_NAME} · step {escape(event["step_id"])}</small>',
             f'<h2>{escape(turn["goal"])}</h2>',
             f'<span class="status">{escape(statuses[turn["status"]])}</span>',
         ]
         if turn['result']:
-            section.append(f'<p>本回合结果：{escape(turn["result"])}</p>')
-        section.append(detail('Agent message', event['thought']))
+            section.append(
+                f'<p>{profile.result_label()}：{escape(turn["result"])}</p>')
+        for label, text in profile.details(turn, event):
+            section.append(detail(label, text))
         section.append(detail('节点证据', evidence_text(turn['source_refs'])))
         for ref in turn['tool_calls']:
             source_event, call = calls[ref['tool_call_id']]
@@ -83,7 +91,7 @@ def render_tree(tree_path, trace_path, output, local_graph_path=None):
         child_tasks = task['subtasks']
         children = ([child['id'] for child in child_tasks] if child_tasks else
                     [turn['event_id'] for turn in task['turns']])
-        descendant_ids = [turn['event_id'] for turn in agent_turns(task)]
+        descendant_ids = [node['event_id'] for node in atomic_nodes(task)]
         task_groups.append(dict(
             id=task['id'], goal=task['goal'], status=statuses[task['status']],
             state=task['status'], label=path, parent_group_id=parent_group_id,
@@ -108,7 +116,7 @@ def render_tree(tree_path, trace_path, output, local_graph_path=None):
             for index, turn in enumerate(task['turns'], 1):
                 section.append(
                     f'<button class="child-link" data-task="{escape(turn["event_id"])}">'
-                    f'{index}. Agent 回合 · {escape(turn["goal"])}</button>')
+                    f'{index}. {profile.ATOMIC_NAME} · {escape(turn["goal"])}</button>')
         section.append('</section>')
         detail_sections.append(''.join(section))
         if child_tasks:
@@ -117,7 +125,7 @@ def render_tree(tree_path, trace_path, output, local_graph_path=None):
                 add_task(child, child_path, task['id'])
         else:
             for index, turn in enumerate(task['turns'], 1):
-                add_turn(turn, f'{path} / 第 {index} 回合', task['id'], index)
+                add_turn(turn, f'{path} / {profile.node_path(index)}', task['id'], index)
 
     add_task(value['root'])
     task_index = {task['id']: task for task in tasks(value['root'])}
@@ -175,21 +183,22 @@ def render_tree(tree_path, trace_path, output, local_graph_path=None):
     }
     data = json.dumps(graph_data, ensure_ascii=False).replace('<', '\\u003c')
     task_count = len(list(tasks(value['root'])))
-    turn_count = len(list(agent_turns(value['root'])))
+    turn_count = len(list(atomic_nodes(value['root'])))
     document = '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
     document += '<meta name="viewport" content="width=device-width,initial-scale=1">'
     document += '<title>层级任务依赖图</title><style>' + style + '</style></head><body>'
     document += '<header><div><small>TRAJECTORY / TASK DEPENDENCY GRAPH</small><h1>层级任务依赖图</h1></div>'
     document += '<div class="meta">' + escape(trace['source']['filename']) + \
-                f' · {task_count} 个任务 · {turn_count} 个 Agent 回合</div></header>'
+                f' · {task_count} 个任务 · {turn_count} 个 {profile.ATOMIC_NAME}</div></header>'
     document += '<div class="toolbar"><button id="fit">适应画布</button><button id="expand">展开全部</button>'
     document += '<button id="collapse">收起子任务</button><button id="minus" aria-label="缩小">−</button>'
     document += '<button id="plus" aria-label="放大">＋</button><span id="zoom"></span>'
-    document += '<input id="search" type="search" placeholder="搜索子任务、Agent 回合或编号" aria-label="搜索任务或节点">'
+    document += (f'<input id="search" type="search" placeholder="搜索子任务、{profile.ATOMIC_NAME}或编号" '
+                 'aria-label="搜索任务或节点">')
     document += '<span id="count"></span></div>'
     document += '<main><div class="canvas"><svg id="tree" aria-label="层级任务依赖图"><g id="viewport"></g></svg>'
     document += '<div class="hint">默认展开全部任务 · 拖动黄色任务标题或蓝色节点可调整位置 · 黄色框与依赖边随节点实时重绘 · 蓝色箭头和标签：子任务信息依赖及原因 · 点击对象聚焦 · 拖动画布 / 滚轮缩放</div></div>'
-    document += '<aside><div class="panel-title">任务、回合与依赖详情 <small>点击图中对象查看</small></div>'
+    document += f'<aside><div class="panel-title">{profile.DETAIL_TITLE} <small>点击图中对象查看</small></div>'
     document += ''.join(detail_sections) + '</aside></main>'
     document += '<footer><details class="review"><summary>待检查项 · ' + str(len(all_flags)) + '</summary>'
     document += '<ul>' + flags + '</ul></details></footer>'

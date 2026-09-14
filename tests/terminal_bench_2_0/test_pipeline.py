@@ -17,9 +17,11 @@ from trajectory_graph.deepseek_client import CapacityError, Client, InvalidRespo
 from trajectory_graph.adapters.terminal_bench_2_0.normalize import (
     OBSERVATION_WARNING_PREFIX, align_observations_by_source_call_id,
     clean_observation_content, load, materialize_alignment, prepare)
+from trajectory_graph.adapters.terminal_bench_2_0.validate import (
+    dependency_evidence, tree)
 from trajectory_graph.validate import (Invalid, agent_turns, alignment_assignments,
-                                         dependency_choice, dependency_evidence,
-                                         local_graphs, root_query, strict_json, tree)
+                                         dependency_choice, local_graphs, root_query,
+                                         strict_json)
 
 
 def ref(eid, text, cid=None, field='thought'):
@@ -739,7 +741,8 @@ class StageOneTests(unittest.TestCase):
 
     def test_leaf_prompt_preserves_causal_phase_boundaries(self):
         root = Path(__file__).parents[2]
-        leaf_prompt = (root / 'src/trajectory_graph/prompts/group_leaf_v1.md').read_text()
+        leaf_prompt = (root / 'src/trajectory_graph/adapters/terminal_bench_2_0/'
+                       'prompts/group_leaf_v1.md').read_text()
         self.assertIn('smallest closed operational unit', leaf_prompt)
         self.assertRegex(
             leaf_prompt,

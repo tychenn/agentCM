@@ -1,10 +1,15 @@
-# Terminal-Bench 2.0 轨迹建图适配器
+# Terminal-Bench 2.0 与 4.0 轨迹建图
 
 ## 当前状态
 
-项目当前实现的是 **Terminal-Bench 2.0 / Terminus 2** 轨迹适配，以及通用的有序递归任务树、tool call 信息依赖识别、任务级依赖投影和离线 HTML 可视化。原始 trajectory 保持只读。
+项目当前支持两套独立适配器。每套适配器分别实现输入规范化、原子结点标注、叶子任务分组、依赖选择、版本字段校验和结点详情展示。两者只复用有序递归归并、任务级依赖投影和画布布局等不依赖 benchmark 字段的算法。原始 trajectory 保持只读。
 
-现有输入适配代码统一放在 [`src/trajectory_graph/adapters/terminal_bench_2_0/`](src/trajectory_graph/adapters/terminal_bench_2_0/)。它只接受 `ATIF-v1.7` 且 `agent.name` 为 `terminus-2` 的轨迹；Claude Code 生成的 Terminal-Bench 4.0 轨迹需要单独的适配器。任务归并、依赖投影和渲染继续由通用模块负责。
+| 适配器 | 输入特征 | 固定原子结点 |
+| --- | --- | --- |
+| [`terminal_bench_2_0`](src/trajectory_graph/adapters/terminal_bench_2_0/) | `ATIF-v1.7`、`agent.name=terminus-2` | 一个 agent event |
+| [`terminal_bench_4_0`](src/trajectory_graph/adapters/terminal_bench_4_0/) | `ATIF-v1.7`、`agent.name=claude-code` | 一个 tool call |
+
+Terminal-Bench 4.0 中，原始 Bash `description` 作为原子结点的目标种子，observation 通过 `source_call_id` 在本地精确绑定。DeepSeek 逐调用补充 `goal`、`action_type`、`target`、`status`、`result` 和 `artifacts`，随后进入通用递归建图流程。
 
 阶段一使用局部窗口形成叶子任务，再对精简任务摘要进行分轮归并。每次请求只判断当前锚点附近的连续节点；有限回看用于修正刚形成的相邻任务边界。
 
@@ -17,7 +22,7 @@ T         自底向上恢复的有序递归任务树
 G_task    一个组合任务的直属子任务信息依赖图
 ```
 
-`T` 的数组顺序记录实际执行顺序。`G_task` 只记录有具体 tool call 证据的信息依赖，不把相邻执行顺序重复画成边。Agent 回合保留在叶子任务内部，按 trajectory 顺序排列，不作为主图依赖边的端点。
+`T` 的数组顺序记录 trajectory 中的确定顺序。`G_task` 只记录有具体 tool call 证据的信息依赖，不把相邻顺序重复画成边。固定原子结点保留在叶子任务内部，不作为主图依赖边的端点。
 
 ## 运行
 
@@ -39,6 +44,18 @@ python run.py build \
 
 python run.py render \
   --input ./runs/terminal-bench-2.0/frontier-test
+```
+
+Terminal-Bench 4.0 的 ATRX case 可以这样运行：
+
+```bash
+python run.py build \
+  --adapter terminal-bench-4.0 \
+  --input ../terminal-bench-trajectory-datasets/fable5.1-terminal-bench-4.0-trajectories/atrx-vep-crispr__42b6a974.json \
+  --output ./runs/terminal-bench-4.0/atrx-vep-crispr
+
+python run.py render \
+  --input ./runs/terminal-bench-4.0/atrx-vep-crispr
 ```
 
 阶段一归并参数可以按轨迹规模调整：
@@ -63,7 +80,7 @@ python -m compileall -q run.py src tests
 node --check src/trajectory_graph/web/tree.js
 ```
 
-`--adapter` 当前只有 `terminal-bench-2.0`。省略 `--output` 时，结果默认写入 `runs/terminal-bench-2.0/<输入文件名>/`，目录名会保留适配版本。
+`--adapter` 可选 `terminal-bench-2.0` 或 `terminal-bench-4.0`，默认仍为 `terminal-bench-2.0`。省略 `--output` 时，结果写入 `runs/<适配器>/<输入文件名>/`。
 
 旧版 `execution_tree.json` 使用混合 `items`，旧版 `turn_graph.json` 使用 frontier 和 `structure_parent_id`，不能直接交给新版 `render`。重新执行 `build` 后会生成新结构，并删除同一输出目录中的旧 `turn_graph.json` 或 `turn_links.json`。
 
@@ -71,19 +88,19 @@ node --check src/trajectory_graph/web/tree.js
 
 | 文件 | 内容 |
 | --- | --- |
-| `normalized_trace.json` | 适配器名称、规范化轨迹、原始 thought、tool call 参数和完整 observation |
-| `turn_nodes.json` | 每个固定 Agent 回合及简短 tool call 结果 |
+| `normalized_trace.json` | 适配器名称、规范化原子结点、tool call 参数和完整 observation |
+| `turn_nodes.json` | 每个固定原子结点及其语义标注；4.0 中一项对应一个 tool call |
 | `execution_tree.json` | 自底向上组合并通过程序校验的有序任务树 |
-| `dependency_evidence.json` | 每个目标 Agent 回合使用的更早 `tool_call_id` |
-| `local_graphs.json` | tool call→回合证据投影成的任务级局部依赖图及 DeepSeek 生成的边原因 |
+| `dependency_evidence.json` | 每个目标原子结点使用的更早 `tool_call_id` |
+| `local_graphs.json` | tool call→原子结点证据投影成的任务级局部依赖图及 DeepSeek 生成的边原因 |
 | `task_id_map.json` | 程序归并阶段的临时任务 ID 到稳定任务 ID 的映射 |
 | `tree.html` | 可展开、聚焦和查看证据的离线页面 |
-| `preprocess_calls.jsonl` | query 提取和必要的 observation 拆分请求记录 |
-| `execution_calls.jsonl` | Agent 回合标注、局部任务归并、边界复核和依赖选择请求记录 |
+| `preprocess_calls.jsonl` | query 提取和 Terminal-Bench 2.0 必要的 observation 拆分请求记录 |
+| `execution_calls.jsonl` | 原子结点标注、局部任务归并、边界复核和依赖选择请求记录 |
 | `grouping_steps.jsonl` | 每轮 frontier、局部选择、边界复核和收敛过程 |
 | `cache/`、`checkpoint.json` | 已验证响应缓存和继续运行状态 |
 
-`build` 默认最大输出长度为 32768，默认上下文上限为 1048576，超时为 600 秒。语义请求开启 thinking；observation 起点识别关闭 thinking 并使用 `temperature=0`。响应截断、JSON 错误或程序校验失败时会携带错误重试；observation 拆分固定最多请求三次，其他阶段使用 `--retries`。
+`build` 默认最大输出长度为 32768，默认上下文上限为 1048576，超时为 600 秒。语义请求开启 thinking；Terminal-Bench 2.0 的 observation 起点识别关闭 thinking 并使用 `temperature=0`。响应截断、JSON 错误或程序校验失败时会携带错误重试；2.0 observation 拆分固定最多请求三次，其他阶段使用 `--retries`。4.0 的 observation 由 `source_call_id` 本地绑定，不运行 split 请求。
 
 ## 两阶段处理流程
 
@@ -91,10 +108,10 @@ node --check src/trajectory_graph/web/tree.js
 trajectory.json
     │
     ▼
-Terminal-Bench 2.0 适配：query、event、tool call、observation 对齐
+版本化适配：2.0 固定 agent event；4.0 固定单个 tool call
     │
     ▼
-逐 event 生成固定 Agent 回合
+逐原子结点生成目标、动作、结果和状态标注
     │
     ▼
 阶段一：局部形成叶子任务，再分轮归并为有序任务树
@@ -103,7 +120,7 @@ Terminal-Bench 2.0 适配：query、event、tool call、observation 对齐
 execution_tree.json
     │
     ▼
-阶段二：逐目标回合选择直接信息来源
+阶段二：逐目标原子结点选择直接信息来源
     │
     ▼
 dependency_evidence.json
@@ -120,30 +137,60 @@ local_graphs.json → tree.html
 
 ### 预处理
 
+#### Terminal-Bench 2.0
+
 Terminal-Bench 2.0 适配器面向 `terminus-2` 的 ATIF-v1.7 输出。程序保留 `source`、`step_id`、agent `message`、有效 tool 参数和 `tool_call_id`。agent `message` 规范化为 `thought`。固定的 parser warning 前缀会在 observation 开头被删除。
 
 observation result 含 `source_call_id` 时，程序按它与当前 step 的 `tool_call_id` 精确对应，并保留原文；结果顺序无需与 tool call 顺序一致。缺少该标识且只有一个 tool call 时，程序直接对齐。多个 tool call 共用未标识的聚合 observation 时，DeepSeek 只返回各段的精确开始锚点，程序复制和切分原文。锚点连续三次无法使原文完整分区时停止构建。终端只显示对齐方式、输入计数及每个 `tool_call_id` 分配到的字符数，不打印 tool 参数和 observation 正文。
 
+#### Terminal-Bench 4.0
+
+Terminal-Bench 4.0 适配器面向 `claude-code` 的 ATIF-v1.7 输出。每个 tool call 必须与同一步中的一个 observation result 通过 `source_call_id` 一一对应；该关系由程序校验并直接复制，不需要 DeepSeek 拆分。
+
+一个 source step 可以并列包含多个 tool call。适配器按原列表顺序把它们展开成多个原子结点，并保存共同的 `step_id` 和各自的 `source_tool_index`。同一步的调用在依赖选择中视为并行调用，不能互相引用结果。
+
+有原始 `arguments.description` 时，程序直接把它保存为 `goal_seed`；缺少 description 的 Read、Write、Edit 等工具则从工具名和关键参数生成确定性种子。4.0 不生成 `thought`，原始 agent message 作为辅助上下文保存，也不单独生成 reasoning 结点。DeepSeek 对每个调用返回：
+
+```json
+{
+  "tool_call_id": "toolu_...",
+  "goal": "检查输入文件及规模",
+  "action_type": "inspect",
+  "target": "/app/data",
+  "status": "completed",
+  "result": "确认输入目录包含所需的四个数据资源",
+  "artifacts": [],
+  "review_flags": []
+}
+```
+
+`action_type` 只能取 `inspect`、`search`、`compute`、`write`、`edit`、`execute`、`validate`、`communicate`、`delegate`、`control` 或 `other`。`artifacts` 只记录本次调用创建或实质修改的输出。模型不能改变调用 ID、原始参数、observation 或原子结点边界。base64 图像 observation 在模型请求中只保留媒体类型、尺寸和编码长度，完整原文仍保存在 `normalized_trace.json`。
+
+没有 tool call 的消息 step 不生成执行结点。调用之前的消息保存在后续结点的 `context_messages`，轨迹末尾的最终回复保存在最后一个结点的 `following_context_messages`，原始内容仍可追溯。
+
 ### 阶段一：有序任务树
 
-每个 `source: "agent"` event 固定为一个 Agent 回合。模型不能拆分、合并、遗漏、重复或移动其中的 tool call。
+原子边界由输入适配器固定：2.0 使用 agent event，4.0 使用单个 tool call。模型不能拆分、合并、遗漏、重复或移动这些结点。
 
-DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个调用的简短结果。程序随后执行以下局部分层归并流程。
+DeepSeek 先分别标注每个原子结点。程序随后执行以下局部分层归并流程。
 
 #### 1. 构造精简节点
 
-程序先把每个 Agent 回合转换为不可拆分的 frontier 节点。发送给分组模型的卡片只保留划分任务所需的信息：
+程序先把每个固定原子结点转换为不可拆分的 frontier 节点。发送给分组模型的卡片只保留划分任务所需的信息：
 
 ```json
 {
   "node_id": "event-0003",
-  "node_kind": "agent_turn",
+  "node_kind": "tool_call",
   "start_order": 3,
   "end_order": 3,
   "goal": "安装 OCR 和 PDF 提取工具",
   "status": "completed",
   "completion_condition": null,
   "result": "tesseract-ocr 和 poppler-utils 已安装",
+  "action_type": "execute",
+  "target": "OCR 工具链",
+  "artifacts": [],
   "first_turn_goal": "安装所需工具",
   "last_turn_goal": "安装所需工具",
   "descendant_turn_count": 1,
@@ -152,14 +199,14 @@ DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个�
 }
 ```
 
-原始 thought、完整 tool 参数、完整 observation 和 `source_refs` 留在程序侧，局部归并请求只发送精简卡片。卡片中的 `evidence_event_ids` 让模型选择代表性后代事件，程序再从已验证 Agent 回合复制精确证据。
+原始目标种子、完整 tool 参数、完整 observation 和 `source_refs` 留在程序侧，局部归并请求只发送精简卡片。卡片中的 `evidence_event_ids` 让模型选择代表性后代事件，程序再从已验证原子结点复制精确证据。
 
 #### 2. 形成叶子任务
 
-程序从最左侧尚未处理的 Agent 回合开始，向右提供一个局部窗口。一次请求只判断锚点回合与其后连续候选是否共同完成一个局部目标。模型可以：
+程序从最左侧尚未处理的原子结点开始，向右提供一个局部窗口。一次请求只判断锚点结点与其后连续候选是否共同完成一个局部目标。模型可以：
 
 - 选择包含锚点的连续前缀，长度为 `2～K`，形成一个叶子任务；
-- 保留锚点为单回合叶子任务；
+- 保留锚点为单结点叶子任务；
 - 在当前窗口尚未看到任务右边界时请求扩展窗口。
 
 请求中带一个已定稿的左侧节点和一个候选窗口之外的右侧节点作为边界参考。这两个上下文节点只能用于判断，不能进入本次 `member_ids`：
@@ -178,7 +225,7 @@ DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个�
 }
 ```
 
-Agent 回合已经是原子执行节点。叶子任务采用最小操作闭环：围绕一个直接目标产生一个主要产出，并具有一个完成条件；它可以包含一个或多个 Agent 回合。单条命令、单条 observation 或中间结果可以被检查，不足以单独构成叶子任务。模型从锚点开始逐个检查相邻边界，只能归并第一个有效边界之前的连续前缀：
+适配器输出已经是原子执行结点。叶子任务采用最小操作闭环：围绕一个直接目标产生一个主要产出，并具有一个完成条件；它可以包含一个或多个原子结点。单条命令、单条 observation 或中间结果可以被检查，不足以单独构成叶子任务。模型从锚点开始逐个检查相邻边界，只能归并第一个有效边界之前的连续前缀：
 
 - 重试、命令修正、同一操作的分批处理、共同支持同一诊断的证据收集，以及操作后的直接验证仍进入同一叶子任务；
 - 当前前缀已经完成其直接操作、产生主要产出，并且下一回合开始具有不同直接目标、主要产出或完成条件的新操作时，在两者之间建立边界；
@@ -249,7 +296,7 @@ frontier = next_frontier
 
 #### 4. `K`、窗口扩展与输入预算
 
-`K` 表示一次请求最多同时判断的候选节点数。一个最终任务可以包含超过 `K` 个 Agent 回合，因为它可以经过多轮归并形成。
+`K` 表示一次请求最多同时判断的候选节点数。一个最终任务可以包含超过 `K` 个原子结点，因为它可以经过多轮归并形成。
 
 默认使用以下配置：
 
@@ -271,7 +318,7 @@ frontier = next_frontier
 - 右侧任务的摘要及其开头最多 `B` 个直属成员；
 - 边界外左右各一个只读上下文节点。
 
-叶子任务阶段的直属成员是固定 Agent 回合；组合任务阶段的直属成员是当前 frontier 节点。回看只能移动这些完整成员，不能拆开 Agent 回合，也不能展开或重组 frontier 节点内部已经固定的子树。
+叶子任务阶段的直属成员是固定原子结点；组合任务阶段的直属成员是当前 frontier 节点。回看只能移动这些完整成员，也不能展开或重组 frontier 节点内部已经固定的子树。
 
 模型可以返回以下动作：
 
@@ -317,13 +364,13 @@ frontier = next_frontier
 
 所有层级仍遵守以下最终结构约束：
 
-- 叶子任务包含一个或多个相邻 Agent 回合；
+- 叶子任务包含一个或多个相邻原子结点；
 - 组合任务只包含至少两个相邻子任务；
 - 一个任务不能同时直接包含回合和子任务；
 - 所有叶子的深度优先顺序必须与 trajectory 完全一致；
 - 数组顺序直接表达任务和回合的执行顺序。
 
-模型只返回后代 `event_id` 作为任务证据选择。程序从已验证 Agent 回合复制精确 `source_refs`，根任务证据固定指向原始 query。
+模型只返回后代 `event_id` 作为任务证据选择。程序从已验证原子结点复制精确 `source_refs`，根任务证据固定指向原始 query。
 
 保存后的任务结构为：
 
@@ -344,12 +391,14 @@ frontier = next_frontier
 
 ### 阶段二：信息依赖和任务投影
 
-任务树完成后，程序按 trajectory 顺序处理每个目标 Agent 回合。依赖请求读取：
+任务树完成后，程序按 trajectory 顺序处理每个目标原子结点。依赖请求读取：
 
 - 根 query；
-- 全部更早 Agent 回合；
-- 更早回合中每个 tool call 的输入、简短结果和完整 observation；
-- 当前目标回合的完整卡片。
+- 全部可用的更早原子结点；
+- 更早结点中每个 tool call 的输入、简短结果和完整 observation；
+- 当前目标结点的完整卡片。
+
+同一 source step 内的 4.0 tool call 视为并行调用，不会进入彼此的候选来源集合。
 
 DeepSeek 只判断哪些更早 tool call 结果被当前回合直接使用、响应、验证、修复或用于选择具体行动。主题相似、时间相邻和一般背景不生成依赖。没有直接来源时允许空数组。
 
@@ -364,7 +413,7 @@ DeepSeek 只判断哪些更早 tool call 结果被当前回合直接使用、响
 
 程序根据 `tool_call_id` 找到来源叶子任务，根据 `target_event_id` 找到目标叶子任务：
 
-1. 来源和目标在同一叶子任务时，不生成任务边；其中的 Agent 回合保持固定顺序。
+1. 来源和目标在同一叶子任务时，不生成任务边；其中的原子结点保持固定顺序。
 2. 来源和目标属于不同叶子任务时，找到两者最深公共任务。
 3. 将两端提升为该公共任务的两个直属子任务。
 4. 相同来源任务和目标任务的证据合并为一条边。
@@ -397,17 +446,17 @@ DeepSeek 只判断哪些更早 tool call 结果被当前回合直接使用、响
 
 ## 可视化
 
-页面默认展开全部任务和 Agent 回合；可以使用“收起子任务”按钮或任务右上角按钮折叠层级。黄色框表示任务，蓝色节点表示叶子任务内部的 Agent 回合。组合任务先根据直属子任务之间的信息依赖计算 DAG 层级：相邻任务层交替采用横向和纵向布局，同一依赖层中的分支沿垂直于主方向的方向展开。叶子任务内的 Agent 回合仍按编号从左向右排列。
+页面默认展开全部任务和原子结点；可以使用“收起子任务”按钮或任务右上角按钮折叠层级。黄色框表示任务，蓝色节点表示叶子任务内部的原子结点。2.0 结点显示为 Agent 回合，4.0 结点显示为工具调用。组合任务先根据直属子任务之间的信息依赖计算 DAG 层级：相邻任务层交替采用横向和纵向布局，同一依赖层中的分支沿垂直于主方向的方向展开。叶子任务内的结点仍按编号从左向右排列。
 
 蓝色箭头只表示 `local_graphs.json` 中的信息依赖。相邻层依赖在来源与目标任务之间直接连线；跨层依赖沿黄色任务容器内侧的预留通道绕过中间节点。边标签显示 DeepSeek 生成的简短原因及对应 tool call 证据。
 
-黄色任务可以通过标题区域自由拖动，任务内部的所有子任务和 Agent 回合会随其一起移动；蓝色 Agent 回合也可以单独拖动。每次移动时，程序从最内层任务开始计算直属内容的包围盒，依次更新所有祖先黄色框的位置和大小。相关依赖边随后根据更新后的任务边界重新选择上下或左右连接位置。“适应画布”会根据调整后的全部节点范围重新居中和缩放。刷新页面会恢复自动布局。
+黄色任务可以通过标题区域自由拖动，任务内部的所有子任务和原子结点会随其一起移动；蓝色原子结点也可以单独拖动。每次移动时，程序从最内层任务开始计算直属内容的包围盒，依次更新所有祖先黄色框的位置和大小。相关依赖边随后根据更新后的任务边界重新选择上下或左右连接位置。“适应画布”会根据调整后的全部节点范围重新居中和缩放。刷新页面会恢复自动布局。
 
-边标签直接显示 DeepSeek 生成的简短原因，并在下方显示具体 `tool_call_id` 或证据数量。点击任务、Agent 回合或依赖边会虚化无关内容；点击依赖边可在右侧查看完整原因、来源调用参数、完整 observation 和目标回合。折叠子任务后仍可查看父级局部图中的任务边。
+边标签直接显示 DeepSeek 生成的简短原因，并在下方显示具体 `tool_call_id` 或证据数量。点击任务、原子结点或依赖边会虚化无关内容；点击依赖边可在右侧查看完整原因、来源调用参数、完整 observation 和目标结点。折叠子任务后仍可查看父级局部图中的任务边。
 
 ## DeepSeek Prompt 文件
 
-通用任务树 prompt 位于 [src/trajectory_graph/prompts/](src/trajectory_graph/prompts/)，Terminal-Bench 2.0 输入和回合标注 prompt 位于 [src/trajectory_graph/adapters/terminal_bench_2_0/prompts/](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/)。程序将公共规则、对应阶段的 system prompt 和 user prompt 组合后发送给模型。
+不依赖 benchmark 结点语义的任务归并 prompt 位于 [src/trajectory_graph/prompts/](src/trajectory_graph/prompts/)。原子结点标注、叶子分组和依赖选择 prompt 分别放在 [Terminal-Bench 2.0 prompts](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/) 与 [Terminal-Bench 4.0 prompts](src/trajectory_graph/adapters/terminal_bench_4_0/prompts/)。程序将公共规则、适配器对应阶段的 system prompt 和 user prompt 组合后发送给模型。
 
 | 用途 | System / 输出格式 | User |
 | --- | --- | --- |
@@ -415,12 +464,15 @@ DeepSeek 只判断哪些更早 tool call 结果被当前回合直接使用、响
 | 提取根任务 | [extract_root_v1.md](src/trajectory_graph/prompts/extract_root_v1.md) | [extract_root_user.md](src/trajectory_graph/prompts/extract_root_user.md) |
 | Terminal-Bench 2.0 对齐聚合 observation | [align_observations_v1.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/align_observations_v1.md) | [align_observations_user.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/align_observations_user.md) |
 | Terminal-Bench 2.0 标注固定 Agent 回合 | [annotate_turn_v1.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/annotate_turn_v1.md) | [annotate_turn_user.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/annotate_turn_user.md) |
+| Terminal-Bench 4.0 标注固定 tool call | [annotate_tool_call_v1.md](src/trajectory_graph/adapters/terminal_bench_4_0/prompts/annotate_tool_call_v1.md) | [annotate_tool_call_user.md](src/trajectory_graph/adapters/terminal_bench_4_0/prompts/annotate_tool_call_user.md) |
 | 阶段一任务摘要格式 | [task_summary_format.md](src/trajectory_graph/prompts/task_summary_format.md) | — |
-| 局部形成叶子任务 | [group_leaf_v1.md](src/trajectory_graph/prompts/group_leaf_v1.md) | [group_leaf_user.md](src/trajectory_graph/prompts/group_leaf_user.md) |
+| Terminal-Bench 2.0 局部形成叶子任务 | [group_leaf_v1.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/group_leaf_v1.md) | [group_leaf_user.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/group_leaf_user.md) |
+| Terminal-Bench 4.0 局部形成叶子任务 | [group_leaf_v1.md](src/trajectory_graph/adapters/terminal_bench_4_0/prompts/group_leaf_v1.md) | [group_leaf_user.md](src/trajectory_graph/adapters/terminal_bench_4_0/prompts/group_leaf_user.md) |
 | 分轮归并组合任务 | [merge_tasks_v1.md](src/trajectory_graph/prompts/merge_tasks_v1.md) | [merge_tasks_user.md](src/trajectory_graph/prompts/merge_tasks_user.md) |
 | 有限边界复核 | [review_boundary_v1.md](src/trajectory_graph/prompts/review_boundary_v1.md) | [review_boundary_user.md](src/trajectory_graph/prompts/review_boundary_user.md) |
 | 汇总根任务状态 | [finalize_root_v1.md](src/trajectory_graph/prompts/finalize_root_v1.md) | [finalize_root_user.md](src/trajectory_graph/prompts/finalize_root_user.md) |
-| 选择 tool call 信息来源 | [select_dependencies_v1.md](src/trajectory_graph/prompts/select_dependencies_v1.md) | [select_dependencies_user.md](src/trajectory_graph/prompts/select_dependencies_user.md) |
+| Terminal-Bench 2.0 选择 tool call 信息来源 | [select_dependencies_v1.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/select_dependencies_v1.md) | [select_dependencies_user.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/select_dependencies_user.md) |
+| Terminal-Bench 4.0 选择 tool call 信息来源 | [select_dependencies_v1.md](src/trajectory_graph/adapters/terminal_bench_4_0/prompts/select_dependencies_v1.md) | [select_dependencies_user.md](src/trajectory_graph/adapters/terminal_bench_4_0/prompts/select_dependencies_user.md) |
 | 生成任务依赖边原因 | [explain_dependencies_v1.md](src/trajectory_graph/prompts/explain_dependencies_v1.md) | [explain_dependencies_user.md](src/trajectory_graph/prompts/explain_dependencies_user.md) |
 | 校验失败后的统一重试 | [retry.md](src/trajectory_graph/prompts/retry.md) | — |
 
@@ -428,7 +480,9 @@ DeepSeek 只判断哪些更早 tool call 结果被当前回合直接使用、响
 
 程序至少检查以下约束：
 
-- 每个 agent event 恰好生成一个 Agent 回合，所有原始 tool call 保持顺序；
+- 2.0 每个 agent event 恰好生成一个原子结点；4.0 每个 tool call 恰好生成一个原子结点；
+- 4.0 的 observation 必须通过 `source_call_id` 与同一步 tool call 一一对应；
+- 4.0 同一步并行调用不能相互成为信息依赖来源；
 - 每个任务只使用 `subtasks` 或 `turns` 中的一种；
 - 每个组合任务至少有两个直属子任务；
 - 叶子任务中的回合连续，整棵树覆盖全部回合且顺序不变；
@@ -451,17 +505,31 @@ trajectory-graph/
 ├── src/trajectory_graph/
 │   ├── cli.py
 │   ├── adapters/
-│   │   └── terminal_bench_2_0/
+│   │   ├── terminal_bench_2_0/
+│   │   │   ├── annotation.py
+│   │   │   ├── dependencies.py
+│   │   │   ├── grouping.py
+│   │   │   ├── normalize.py
+│   │   │   ├── render.py
+│   │   │   ├── validate.py
+│   │   │   └── prompts/
+│   │   └── terminal_bench_4_0/
 │   │       ├── annotation.py
+│   │       ├── dependencies.py
+│   │       ├── grouping.py
 │   │       ├── normalize.py
+│   │       ├── render.py
+│   │       ├── validate.py
 │   │       └── prompts/
-│   ├── grouping.py
-│   ├── dependencies.py
+│   ├── grouping.py       # 通用递归窗口与任务归并算法
+│   ├── dependencies.py   # 通用依赖投影算法
 │   ├── deepseek_client.py
-│   ├── validate.py
-│   ├── render.py
+│   ├── validate.py       # 通用结构与证据校验原语
+│   ├── render.py         # 通用布局与 HTML 生成
 │   ├── prompts/
 │   └── web/
-├── runs/terminal-bench-2.0/<input-stem>/
-└── tests/terminal_bench_2_0/test_pipeline.py
+├── runs/<adapter>/<input-stem>/
+└── tests/
+    ├── terminal_bench_2_0/test_pipeline.py
+    └── terminal_bench_4_0/test_adapter.py
 ```

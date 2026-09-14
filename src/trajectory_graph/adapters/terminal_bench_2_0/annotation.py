@@ -1,8 +1,8 @@
 """Terminal-Bench 2.0 turn-annotation contract and validation."""
 import copy
 
-from ...validate import (Evidence, TURN_STATUS, flags, keys, require, string,
-                         turn_annotations)
+from ...validate import Evidence, TURN_STATUS, flags, keys, require, string
+from .validate import node_annotations
 
 
 PROMPT_ROOT = 'adapters/terminal_bench_2_0/prompts'
@@ -43,7 +43,10 @@ def turn_annotation(value, event):
                     'Call with a non-empty observation needs a brief result')
     require(actual_calls == expected_calls,
             'Tool call results must match the event calls exactly once and in order')
-    evidence = Evidence({'query': {'source_raw': ''}, 'events': [event]})
+    evidence = Evidence(
+        {'query': {'source_raw': ''}, 'events': [event]},
+        node_evidence_field='thought',
+    )
     evidence.refs(turn['source_refs'], event['event_id'])
 
 
@@ -71,5 +74,5 @@ def attach_tool_calls(value, trace):
             for call in call_results
         ]
         result.append(turn)
-    turn_annotations({'turns': result, 'review_flags': value['review_flags']}, trace)
+    node_annotations({'turns': result, 'review_flags': value['review_flags']}, trace)
     return result
