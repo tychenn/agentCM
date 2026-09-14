@@ -110,43 +110,6 @@ TURN_STATUS = {'completed', 'failed', 'incomplete', 'uncertain'}
 TASK_STATUS = {'active', 'suspended', 'completed', 'failed', 'abandoned', 'uncertain'}
 
 
-def turn_annotation(value, event):
-    keys(value, 'turn review_flags')
-    flags(value['review_flags'])
-    turn = value['turn']
-    keys(turn, 'event_id goal status result tool_call_results source_refs')
-    require(event['source'] == 'agent', 'Only agent events can be annotated')
-    require(turn['event_id'] == event['event_id'], 'Turn event ID changed')
-    string(turn['goal'])
-    require(len(turn['goal']) <= 240, 'Turn goal exceeds 240 characters')
-    require(turn['status'] in TURN_STATUS, 'Invalid Agent turn status')
-    if turn['result'] is not None:
-        string(turn['result'])
-        require(len(turn['result']) <= 600, 'Turn result exceeds 600 characters')
-    require(isinstance(turn['tool_call_results'], list), 'tool_call_results must be an array')
-    expected_calls = [call['tool_call_id'] for call in event['tool_calls']]
-    actual_calls = []
-    for call_result in turn['tool_call_results']:
-        keys(call_result, 'tool_call_id result')
-        actual_calls.append(call_result['tool_call_id'])
-        original = next((call for call in event['tool_calls']
-                         if call['tool_call_id'] == call_result['tool_call_id']), None)
-        require(original is not None, 'Unknown tool call in turn annotation')
-        if call_result['result'] is not None:
-            string(call_result['result'])
-            require(len(call_result['result']) <= 300,
-                    'Tool call result exceeds 300 characters')
-            require(bool(original['observation']['raw']),
-                    'Call with an empty observation must have result null')
-        else:
-            require(not original['observation']['raw'],
-                    'Call with a non-empty observation needs a brief result')
-    require(actual_calls == expected_calls,
-            'Tool call results must match the event calls exactly once and in order')
-    evidence = Evidence({'query': {'source_raw': ''}, 'events': [event]})
-    evidence.refs(turn['source_refs'], event['event_id'])
-
-
 def turn_annotations(value, trace):
     keys(value, 'turns review_flags')
     flags(value['review_flags'])
@@ -176,19 +139,6 @@ def turn_annotations(value, trace):
         require(actual_calls == expected_calls, 'Agent turn tool calls changed or reordered')
         actual.append(turn['event_id'])
     require(actual == expected, 'Agent turns must match all agent events exactly once and in order')
-
-
-def attach_tool_calls(value, trace):
-    """Attach immutable call references after validating model annotations."""
-    result = []
-    for source in value['turns']:
-        turn = copy.deepcopy(source)
-        call_results = turn.pop('tool_call_results')
-        turn['tool_calls'] = [{'tool_call_id': call['tool_call_id'], 'result': call['result']}
-                              for call in call_results]
-        result.append(turn)
-    turn_annotations({'turns': result, 'review_flags': value['review_flags']}, trace)
-    return result
 
 
 def dependency_choice(value, target_event_id, prior_call_ids):

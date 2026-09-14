@@ -1,8 +1,10 @@
-# 基于有序任务树和局部依赖图的轨迹建图方案
+# Terminal-Bench 2.0 轨迹建图适配器
 
 ## 当前状态
 
-项目已实现轨迹预处理、有序递归任务树、tool call 信息依赖识别、任务级依赖投影和离线 HTML 可视化。原始 trajectory 保持只读。
+项目当前实现的是 **Terminal-Bench 2.0 / Terminus 2** 轨迹适配，以及通用的有序递归任务树、tool call 信息依赖识别、任务级依赖投影和离线 HTML 可视化。原始 trajectory 保持只读。
+
+现有输入适配代码统一放在 [`src/trajectory_graph/adapters/terminal_bench_2_0/`](src/trajectory_graph/adapters/terminal_bench_2_0/)。它只接受 `ATIF-v1.7` 且 `agent.name` 为 `terminus-2` 的轨迹；Claude Code 生成的 Terminal-Bench 4.0 轨迹需要单独的适配器。任务归并、依赖投影和渲染继续由通用模块负责。
 
 阶段一使用局部窗口形成叶子任务，再对精简任务摘要进行分轮归并。每次请求只判断当前锚点附近的连续节点；有限回看用于修正刚形成的相邻任务边界。
 
@@ -31,19 +33,21 @@ G_task    一个组合任务的直属子任务信息依赖图
 cd /home/cty/agentCM/trajectory-graph
 
 python run.py build \
+  --adapter terminal-bench-2.0 \
   --input ../trajectory.json \
-  --output ./runs/frontier-test
+  --output ./runs/terminal-bench-2.0/frontier-test
 
 python run.py render \
-  --input ./runs/frontier-test
+  --input ./runs/terminal-bench-2.0/frontier-test
 ```
 
 阶段一归并参数可以按轨迹规模调整：
 
 ```bash
 python run.py build \
+  --adapter terminal-bench-2.0 \
   --input ../trajectory.json \
-  --output ./runs/frontier-test \
+  --output ./runs/terminal-bench-2.0/frontier-test \
   --merge-window 16 \
   --merge-window-max 64 \
   --merge-input-tokens 65536 \
@@ -55,9 +59,11 @@ python run.py build \
 ```bash
 cd /home/cty/agentCM/trajectory-graph
 PYTHONPATH=src python -m unittest discover -s tests -v
-python -m py_compile run.py src/trajectory_graph/*.py
+python -m compileall -q run.py src tests
 node --check src/trajectory_graph/web/tree.js
 ```
+
+`--adapter` 当前只有 `terminal-bench-2.0`。省略 `--output` 时，结果默认写入 `runs/terminal-bench-2.0/<输入文件名>/`，目录名会保留适配版本。
 
 旧版 `execution_tree.json` 使用混合 `items`，旧版 `turn_graph.json` 使用 frontier 和 `structure_parent_id`，不能直接交给新版 `render`。重新执行 `build` 后会生成新结构，并删除同一输出目录中的旧 `turn_graph.json` 或 `turn_links.json`。
 
@@ -65,14 +71,14 @@ node --check src/trajectory_graph/web/tree.js
 
 | 文件 | 内容 |
 | --- | --- |
-| `normalized_trace.json` | 规范化轨迹、原始 thought、tool call 参数和完整 observation |
+| `normalized_trace.json` | 适配器名称、规范化轨迹、原始 thought、tool call 参数和完整 observation |
 | `turn_nodes.json` | 每个固定 Agent 回合及简短 tool call 结果 |
 | `execution_tree.json` | 自底向上组合并通过程序校验的有序任务树 |
 | `dependency_evidence.json` | 每个目标 Agent 回合使用的更早 `tool_call_id` |
 | `local_graphs.json` | tool call→回合证据投影成的任务级局部依赖图及 DeepSeek 生成的边原因 |
 | `task_id_map.json` | 程序归并阶段的临时任务 ID 到稳定任务 ID 的映射 |
 | `tree.html` | 可展开、聚焦和查看证据的离线页面 |
-| `preprocess_calls.jsonl` | query 提取和 observation 拆分请求记录 |
+| `preprocess_calls.jsonl` | query 提取和必要的 observation 拆分请求记录 |
 | `execution_calls.jsonl` | Agent 回合标注、局部任务归并、边界复核和依赖选择请求记录 |
 | `grouping_steps.jsonl` | 每轮 frontier、局部选择、边界复核和收敛过程 |
 | `cache/`、`checkpoint.json` | 已验证响应缓存和继续运行状态 |
@@ -85,7 +91,7 @@ node --check src/trajectory_graph/web/tree.js
 trajectory.json
     │
     ▼
-预处理：query、event、tool call、observation 对齐
+Terminal-Bench 2.0 适配：query、event、tool call、observation 对齐
     │
     ▼
 逐 event 生成固定 Agent 回合
@@ -114,9 +120,9 @@ local_graphs.json → tree.html
 
 ### 预处理
 
-程序保留 `source`、`step_id`、agent `message`、有效 tool 参数和 `tool_call_id`。agent `message` 规范化为 `thought`。固定的 parser warning 前缀会在 observation 开头被删除。
+Terminal-Bench 2.0 适配器面向 `terminus-2` 的 ATIF-v1.7 输出。程序保留 `source`、`step_id`、agent `message`、有效 tool 参数和 `tool_call_id`。agent `message` 规范化为 `thought`。固定的 parser warning 前缀会在 observation 开头被删除。
 
-一个 tool call 对应一个 observation 时，程序直接对齐。多个 tool call 共用聚合 observation 时，DeepSeek 只返回各段的精确开始锚点，程序复制和切分原文。锚点连续三次无法使原文完整分区时停止构建。
+observation result 含 `source_call_id` 时，程序按它与当前 step 的 `tool_call_id` 精确对应，并保留原文；结果顺序无需与 tool call 顺序一致。缺少该标识且只有一个 tool call 时，程序直接对齐。多个 tool call 共用未标识的聚合 observation 时，DeepSeek 只返回各段的精确开始锚点，程序复制和切分原文。锚点连续三次无法使原文完整分区时停止构建。终端只显示对齐方式、输入计数及每个 `tool_call_id` 分配到的字符数，不打印 tool 参数和 observation 正文。
 
 ### 阶段一：有序任务树
 
@@ -172,12 +178,14 @@ DeepSeek 先分别标注每个回合的 `goal`、`status`、`result` 和每个�
 }
 ```
 
-叶子任务采用最小可独立验收的操作目标。模型从锚点开始逐个检查相邻边界，只能归并第一个有效边界之前的连续前缀：
+Agent 回合已经是原子执行节点。叶子任务采用最小操作闭环：围绕一个直接目标产生一个主要产出，并具有一个完成条件；它可以包含一个或多个 Agent 回合。单条命令、单条 observation 或中间结果可以被检查，不足以单独构成叶子任务。模型从锚点开始逐个检查相邻边界，只能归并第一个有效边界之前的连续前缀：
 
-- 重试、命令修正、同一操作的分批处理和直接续做仍进入同一叶子任务；
-- 当前前缀已经产生可独立使用的事实、诊断、决策、产物或验证状态，并且下一回合开始消费或响应该结果时，在两者之间建立边界；
+- 重试、命令修正、同一操作的分批处理、共同支持同一诊断的证据收集，以及操作后的直接验证仍进入同一叶子任务；
+- 当前前缀已经完成其直接操作、产生主要产出，并且下一回合开始具有不同直接目标、主要产出或完成条件的新操作时，在两者之间建立边界；
 - “发现或诊断 → 修复或安装”“规划或选择 → 执行”“产生产物 → 下游分析”属于需要重点检查的阶段转换；
 - 多个操作属于同一个宽泛阶段，不足以把它们归并成一个叶子任务；宽泛阶段由后续组合任务表达。
+
+主要产出可以是诊断、决策、产物、状态变化或验证结果。日志、临时文件、部分批次和孤立事实如果只表示当前完成条件的中间进度，不形成边界。相邻回合之间存在信息依赖也不自动要求拆分，仍需先判断它们是否服务于同一个直接目标和完成条件。
 
 例如“检查环境并确认缺少工具”和“根据检查结果安装工具”应形成两个叶子任务，再由上层“准备处理环境”组合任务统一包含。该规则根据操作目标和完成条件判断，不依赖 OCR、包管理器等特定名称。
 
@@ -399,14 +407,14 @@ DeepSeek 只判断哪些更早 tool call 结果被当前回合直接使用、响
 
 ## DeepSeek Prompt 文件
 
-实际发送内容以 [src/trajectory_graph/prompts/](src/trajectory_graph/prompts/) 下的文件为准。程序将公共规则、对应阶段的 system prompt 和 user prompt 组合后发送给模型。
+通用任务树 prompt 位于 [src/trajectory_graph/prompts/](src/trajectory_graph/prompts/)，Terminal-Bench 2.0 输入和回合标注 prompt 位于 [src/trajectory_graph/adapters/terminal_bench_2_0/prompts/](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/)。程序将公共规则、对应阶段的 system prompt 和 user prompt 组合后发送给模型。
 
 | 用途 | System / 输出格式 | User |
 | --- | --- | --- |
 | 公共 JSON、证据和安全规则 | [common.md](src/trajectory_graph/prompts/common.md) | — |
 | 提取根任务 | [extract_root_v1.md](src/trajectory_graph/prompts/extract_root_v1.md) | [extract_root_user.md](src/trajectory_graph/prompts/extract_root_user.md) |
-| 对齐聚合 observation | [align_observations_v1.md](src/trajectory_graph/prompts/align_observations_v1.md) | [align_observations_user.md](src/trajectory_graph/prompts/align_observations_user.md) |
-| 标注固定 Agent 回合 | [annotate_turn_v1.md](src/trajectory_graph/prompts/annotate_turn_v1.md) | [annotate_turn_user.md](src/trajectory_graph/prompts/annotate_turn_user.md) |
+| Terminal-Bench 2.0 对齐聚合 observation | [align_observations_v1.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/align_observations_v1.md) | [align_observations_user.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/align_observations_user.md) |
+| Terminal-Bench 2.0 标注固定 Agent 回合 | [annotate_turn_v1.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/annotate_turn_v1.md) | [annotate_turn_user.md](src/trajectory_graph/adapters/terminal_bench_2_0/prompts/annotate_turn_user.md) |
 | 阶段一任务摘要格式 | [task_summary_format.md](src/trajectory_graph/prompts/task_summary_format.md) | — |
 | 局部形成叶子任务 | [group_leaf_v1.md](src/trajectory_graph/prompts/group_leaf_v1.md) | [group_leaf_user.md](src/trajectory_graph/prompts/group_leaf_user.md) |
 | 分轮归并组合任务 | [merge_tasks_v1.md](src/trajectory_graph/prompts/merge_tasks_v1.md) | [merge_tasks_user.md](src/trajectory_graph/prompts/merge_tasks_user.md) |
@@ -442,7 +450,11 @@ trajectory-graph/
 ├── run.py
 ├── src/trajectory_graph/
 │   ├── cli.py
-│   ├── normalize.py
+│   ├── adapters/
+│   │   └── terminal_bench_2_0/
+│   │       ├── annotation.py
+│   │       ├── normalize.py
+│   │       └── prompts/
 │   ├── grouping.py
 │   ├── dependencies.py
 │   ├── deepseek_client.py
@@ -450,6 +462,6 @@ trajectory-graph/
 │   ├── render.py
 │   ├── prompts/
 │   └── web/
-├── runs/<input-stem>/
-└── tests/test_stage_one.py
+├── runs/terminal-bench-2.0/<input-stem>/
+└── tests/terminal_bench_2_0/test_pipeline.py
 ```

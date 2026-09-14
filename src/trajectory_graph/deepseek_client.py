@@ -24,7 +24,10 @@ def save(path, value):
 
 
 def prompt(name):
-    return (Path(__file__).parent / 'prompts' / (name + '.md')).read_text(encoding='utf-8').strip()
+    package = Path(__file__).parent
+    path = package / (name + '.md') if name.startswith('adapters/') else \
+        package / 'prompts' / (name + '.md')
+    return path.read_text(encoding='utf-8').strip()
 
 
 def render(name, **data):

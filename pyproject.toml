@@ -16,4 +16,4 @@ trajectory-graph = "trajectory_graph.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-trajectory_graph = ["prompts/*.md", "web/*.css", "web/*.js"]
+trajectory_graph = ["prompts/*.md", "adapters/*/prompts/*.md", "web/*.css", "web/*.js"]

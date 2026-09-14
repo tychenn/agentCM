@@ -5,24 +5,36 @@ import os
 import sys
 from pathlib import Path
 
+from .adapters import ADAPTERS, get_adapter
 from .deepseek_client import Client, save
 from .config import load_env
 from .dependencies import (add_dependency_reasons, build_dependency_evidence,
                            project_local_graphs)
 from .grouping import build_task_tree
-from .normalize import load, normalize, prepare
-from .validate import (Invalid, attach_tool_calls, expand_grouping, require,
-                       stable_ids, strict_json, tree, turn_annotation)
+from .validate import (Invalid, expand_grouping, require, stable_ids,
+                       strict_json, tree)
+
+
+DEFAULT_ADAPTER = 'terminal-bench-2.0'
+
+
+def add_adapter_argument(command):
+    command.add_argument(
+        '--adapter', choices=sorted(ADAPTERS), default=DEFAULT_ADAPTER,
+        help=f'输入格式适配器，默认 {DEFAULT_ADAPTER}',
+    )
 
 
 def parser():
-    result = argparse.ArgumentParser(description='ATIF 轨迹预处理及层级任务依赖图恢复')
+    result = argparse.ArgumentParser(description='版本化 ATIF 轨迹预处理及层级任务依赖图恢复')
     sub = result.add_subparsers(dest='command', required=True)
     inspect = sub.add_parser('inspect', help='本地检查输入规模，不调用 API')
     inspect.add_argument('--input', required=True, type=Path)
+    add_adapter_argument(inspect)
     for name, help_text in [('normalize', '只运行预处理'), ('build', '生成有序任务树和信息依赖图')]:
         command = sub.add_parser(name, help=help_text)
         command.add_argument('--input', required=True, type=Path)
+        add_adapter_argument(command)
         command.add_argument('--output', type=Path, help='默认保存到 runs/<输入文件名>/；normalize 可指定 JSON 文件')
         command.add_argument('--resume', action='store_true', default=True, help=argparse.SUPPRESS)
         command.add_argument('--model', default=os.environ.get('DEEPSEEK_MODEL', 'deepseek-flash'))
@@ -65,10 +77,12 @@ def run(args, transport=None):
         tree(value, trace)
         print('校验通过')
         return
-    original, source = load(args.input)
-    prepared, input_flags = prepare(original)
+    adapter = get_adapter(args.adapter)
+    original, source = adapter.load(args.input)
+    prepared, input_flags = adapter.prepare(original)
     if args.command == 'inspect':
-        print(f"query: 1; events: {len(prepared)}; agent events: {sum(e['source'] == 'agent' for e, _ in prepared)}; "
+        print(f"adapter: {adapter.NAME}; query: 1; events: {len(prepared)}; "
+              f"agent events: {sum(e['source'] == 'agent' for e, _ in prepared)}; "
               f"tool calls: {sum(len(e['tool_calls']) for e, _ in prepared)}")
         print('SHA-256: ' + source['sha256'])
         for flag in input_flags:
@@ -83,7 +97,7 @@ def run(args, transport=None):
                 '--merge-input-tokens must be positive')
         require(0 <= args.merge_lookback < args.merge_window,
                 'Require 0 <= --merge-lookback < --merge-window')
-    default = Path('runs') / args.input.stem
+    default = Path('runs') / adapter.NAME / args.input.stem
     output = (args.output or (default if args.command == 'build' else default / 'normalized_trace.json')).resolve()
     directory = output if args.command == 'build' else output.parent
     normalized_path = directory / 'normalized_trace.json' if args.command == 'build' else output
@@ -100,7 +114,7 @@ def run(args, transport=None):
     state = {'stage': 'starting', 'source': source}
     save(checkpoint, state)
     try:
-        trace = normalize(original, source, client)
+        trace = adapter.normalize(original, source, client)
         save(normalized_path, trace)
         state['stage'] = 'normalized'
         save(checkpoint, state)
@@ -109,15 +123,11 @@ def run(args, transport=None):
             for event in trace['events']:
                 if event['source'] != 'agent':
                     continue
-                response = client.ask(
-                    f'annotate-{event["event_id"]}', ['annotate_turn_v1'], 'annotate_turn_user',
-                    {'agent_event_json': event},
-                    lambda value, current=event: turn_annotation(value, current),
-                    output_tokens=args.max_output_tokens, thinking=True)
+                response = adapter.annotate_event(client, event, args.max_output_tokens)
                 annotation_turns.append(response['turn'])
                 annotation_flags.extend(response['review_flags'])
             annotations = {'turns': annotation_turns, 'review_flags': annotation_flags}
-            turn_nodes = attach_tool_calls(annotations, trace)
+            turn_nodes = adapter.attach_tool_calls(annotations, trace)
             save(directory / 'turn_nodes.json', {
                 'turns': turn_nodes, 'review_flags': annotations['review_flags']})
             state['stage'] = 'turns_annotated'

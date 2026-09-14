@@ -14,8 +14,9 @@ from unittest.mock import patch
 
 from trajectory_graph.cli import parser, run
 from trajectory_graph.deepseek_client import CapacityError, Client, InvalidResponse, prompt
-from trajectory_graph.normalize import (OBSERVATION_WARNING_PREFIX, clean_observation_content,
-                                          load, materialize_alignment, prepare)
+from trajectory_graph.adapters.terminal_bench_2_0.normalize import (
+    OBSERVATION_WARNING_PREFIX, align_observations_by_source_call_id,
+    clean_observation_content, load, materialize_alignment, prepare)
 from trajectory_graph.validate import (Invalid, agent_turns, alignment_assignments,
                                          dependency_choice, dependency_evidence,
                                          local_graphs, root_query, strict_json, tree)
@@ -46,7 +47,11 @@ def fixture():
              'arguments': {'keystrokes': f'command-{i}\n', 'duration': 1}}],
             'observation': {'results': [{'content': output}]}})
     steps.append({'step_id': 7, 'source': 'agent', 'message': '任务完成'})
-    return {'schema_version': 'ATIF-v1.7', 'steps': steps}
+    return {
+        'schema_version': 'ATIF-v1.7',
+        'agent': {'name': 'terminus-2', 'version': '2.0.0'},
+        'steps': steps,
+    }
 
 
 class Model:
@@ -260,6 +265,7 @@ class StageOneTests(unittest.TestCase):
         before = hashlib.sha256(self.input.read_bytes()).hexdigest()
         value, trace, model = self.build(Model(invalid_first=True))
         tree(value, trace)
+        self.assertEqual(trace['source']['adapter'], 'terminal-bench-2.0')
         self.assertEqual(value['root']['subtasks'][0]['subtasks'][1]['goal'], '安装缺少的依赖')
         self.assertEqual(value['root']['source_refs'], [{
             'event_id': 'query', 'tool_call_id': None, 'field': 'source_raw',
@@ -446,7 +452,7 @@ class StageOneTests(unittest.TestCase):
         self.assertEqual(len(split_requests), 3)
         self.assertFalse((self.out / 'normalized_trace.json').exists())
 
-    def test_split_fast_path_and_model_split_terminal_details(self):
+    def test_split_fast_path_and_model_split_terminal_summary(self):
         data = fixture()
         data['steps'][2]['tool_calls'].append({
             'tool_call_id': 'c3-extra', 'function_name': 'bash_command',
@@ -472,13 +478,47 @@ class StageOneTests(unittest.TestCase):
         self.assertNotIn('"duration"', split_user)
         output = stream.getvalue()
         self.assertIn('[split-2] 结果（本地直接对齐，未调用模型）', output)
-        self.assertIn('tool_call c2 (bash_command)', output)
-        self.assertIn('arguments   = {"keystrokes": "command-2\\n"}', output)
-        self.assertIn('observation <- "ModuleNotFoundError\\n"', output)
+        self.assertIn('分配：c2=20字符', output)
+        self.assertNotIn('arguments   =', output)
+        self.assertNotIn('observation <-', output)
+        self.assertNotIn('ModuleNotFoundError', output)
         self.assertIn('[split-3] 需要模型判断：2 个 tool call，2 段 observation', output)
-        self.assertIn('tool_call c3-extra (bash_command)', output)
-        self.assertIn('observation <- "Second output\\n"', output)
+        self.assertIn('分配：c3=10字符, c3-extra=14字符', output)
+        self.assertNotIn('Second output', output)
         self.assertEqual(trace['events'][1]['tool_calls'][1]['observation']['raw'], 'Second output\n')
+
+    def test_source_call_ids_use_local_alignment_in_tool_call_order(self):
+        data = fixture()
+        data['steps'][2]['tool_calls'].append({
+            'tool_call_id': 'c3-extra', 'function_name': 'bash_command',
+            'arguments': {'keystrokes': 'second-command\n', 'duration': 1}})
+        data['steps'][2]['observation']['results'] = [
+            {'source_call_id': 'c3-extra', 'content': 'Second output\n'},
+            {'source_call_id': 'c3', 'content': 'Installed\n'},
+        ]
+        self.input.write_text(json.dumps(data, ensure_ascii=False))
+        model = Model()
+        stream = StringIO()
+        with redirect_stdout(stream):
+            _, trace, model = self.build(model)
+        split_requests = [request for request in model.requests
+            if "Locate the start of each supplied ordered tool call's text" in
+               request['messages'][0]['content']]
+        self.assertEqual(split_requests, [])
+        calls = trace['events'][1]['tool_calls']
+        self.assertEqual([call['observation']['raw'] for call in calls],
+                         ['Installed\n', 'Second output\n'])
+        self.assertIn(
+            '[split-3] 结果（按 source_call_id 本地直接对齐，未调用模型）',
+            stream.getvalue())
+        self.assertIn('分配：c3=10字符, c3-extra=14字符', stream.getvalue())
+        self.assertNotIn('Second output', stream.getvalue())
+
+    def test_source_call_id_must_match_a_call_in_the_same_step(self):
+        calls = [{'tool_call_id': 'a'}, {'tool_call_id': 'b'}]
+        observations = [{'source_call_id': 'outside', 'content': 'output\n'}]
+        with self.assertRaisesRegex(Invalid, 'does not match a tool call'):
+            align_observations_by_source_call_id(calls, observations)
 
     def test_alignment_uses_anchors_to_slice_exact_source(self):
         calls = [{'tool_call_id': 'a'}, {'tool_call_id': 'b'}]
@@ -523,7 +563,8 @@ class StageOneTests(unittest.TestCase):
         data['steps'][1]['observation']['results'][0]['content'] = (
             OBSERVATION_WARNING_PREFIX + terminal_output)
         prepared, _ = prepare(data)
-        self.assertEqual(prepared[0][1], [terminal_output])
+        self.assertEqual(prepared[0][1], [
+            {'source_call_id': None, 'content': terminal_output}])
         self.assertEqual(clean_observation_content(
             OBSERVATION_WARNING_PREFIX.replace('\n', '\r\n') + terminal_output), terminal_output)
         embedded = 'prefix\n' + OBSERVATION_WARNING_PREFIX + terminal_output
@@ -690,16 +731,26 @@ class StageOneTests(unittest.TestCase):
         self.assertEqual(explanation['reasoning_effort'], 'high')
 
     def test_prompt_files_are_linked_in_readme(self):
-        root = Path(__file__).parents[1]
+        root = Path(__file__).parents[2]
         readme = (root / 'README.md').read_text()
-        for path in (root / 'src/trajectory_graph/prompts').glob('*.md'):
+        for path in (root / 'src/trajectory_graph').rglob('prompts/*.md'):
             relative = path.relative_to(root).as_posix()
             self.assertIn(f']({relative})', readme, path.name)
 
     def test_leaf_prompt_preserves_causal_phase_boundaries(self):
-        root = Path(__file__).parents[1]
+        root = Path(__file__).parents[2]
         leaf_prompt = (root / 'src/trajectory_graph/prompts/group_leaf_v1.md').read_text()
-        self.assertIn('smallest coherent operational task', leaf_prompt)
+        self.assertIn('smallest closed operational unit', leaf_prompt)
+        self.assertRegex(
+            leaf_prompt,
+            r'Agent turns are already the\s+atomic execution nodes')
+        self.assertRegex(
+            leaf_prompt,
+            r'one primary output, and one completion condition')
+        self.assertIn('does not by itself require a split', leaf_prompt)
+        self.assertRegex(
+            leaf_prompt,
+            r'partial batch, or isolated fact is not sufficient')
         self.assertIn('earliest supported boundary', leaf_prompt)
         self.assertRegex(
             leaf_prompt,
@@ -714,11 +765,12 @@ class StageOneTests(unittest.TestCase):
             with patch.dict(os.environ, {}, clear=True):
                 args = parser().parse_args(['build', '--input', str(self.input)])
             self.assertEqual(args.model, 'deepseek-flash')
+            self.assertEqual(args.adapter, 'terminal-bench-2.0')
             self.assertEqual((args.merge_window, args.merge_window_max,
                               args.merge_input_tokens, args.merge_lookback),
                              (16, 64, 65536, 1))
             run(args, transport=Model())
-            directory = self.base / 'runs/input'
+            directory = self.base / 'runs/terminal-bench-2.0/input'
             run(parser().parse_args(['render', '--input', str(directory)]))
             page = (directory / 'tree.html').read_text()
             self.assertIn('安装缺少的依赖', page)
@@ -783,6 +835,14 @@ class StageOneTests(unittest.TestCase):
                 render_tree(directory / 'execution_tree.json', trace_path, trace_path)
         finally:
             os.chdir(previous)
+
+    def test_terminal_bench_2_adapter_rejects_claude_code_trajectory(self):
+        data = fixture()
+        data['agent'] = {'name': 'claude-code', 'version': '2.1.257'}
+        self.input.write_text(json.dumps(data, ensure_ascii=False))
+        with self.assertRaisesRegex(
+                Invalid, "terminal-bench-2.0 adapter requires agent.name='terminus-2'"):
+            load(self.input)
 
 
 if __name__ == '__main__':
