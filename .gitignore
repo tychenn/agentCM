@@ -1,0 +1,23 @@
+# Editor and local agent configuration
+.vscode/
+AGENT.md
+
+# Local datasets
+terminal-bench-trajectory-datasets/
+
+# Secrets and environment configuration
+**/.env
+**/.env.*
+
+# Python-generated files
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/*.egg-info/
+
+# Generated outputs and build artifacts
+**/runs/
+**/build/
+
+# OS metadata
+.DS_Store
