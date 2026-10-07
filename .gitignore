@@ -5,6 +5,13 @@ AGENT.md
 # Local datasets
 terminal-bench-trajectory-datasets/
 
+# Local assets for reproduction projects
+reproductions/**/_datasets/
+reproductions/**/_artifacts/
+reproductions/**/_checkpoints/
+reproductions/**/.venv/
+reproductions/**/wandb/
+
 # Secrets and environment configuration
 **/.env
 **/.env.*

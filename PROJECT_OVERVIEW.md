@@ -83,4 +83,4 @@ flowchart TD
 
 相关实现说明：[轨迹建图](trajectory-graph/README.md)、[边类型发现](https://github.com/ZPRRR2004/llm_Iterative_Edge_Type/blob/main/src/build_edges/README.md)。
 
-本地补充材料：`RESEARCH_REVIEW.md` 记录待审核的论文调研与备选方案，`TODO.md` 记录待办事项。
+补充材料：[RESEARCH_REVIEW.md](RESEARCH_REVIEW.md) 记录待审核的论文调研与备选方案，[TODO.md](TODO.md) 记录待办事项。
