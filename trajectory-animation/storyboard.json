@@ -1,0 +1,122 @@
+{
+  "title": "轨迹生长与子任务压缩",
+  "task": "整理 17 份 JPG / PDF：识别发票、提取含税总额与 VAT，归档并生成汇总表。",
+  "compressionNote": "轨迹中的执行、工具输出来自原始记录；子任务分组、依赖连线、叶子压缩与高层归并时点为人工编排的可编辑演示。原始记录未发生这些压缩，未验证压缩后的模型效果。",
+  "dependencyNote": "连线依据原始 action 和 observation 人工标注，用于说明信息如何沿轨迹传递；未经模型自动建图或干预实验验证。执行顺序由步骤编号表达。",
+  "tokenNote": "promptTokens 是原始轨迹每轮真实输入 token 记录，包含运行框架开销；动画未测量压缩后的 token 数。",
+  "groups": [
+    {
+      "id": "env", "title": "准备环境", "description": "检查文件和工具，选择可用安装方式。",
+      "stepIds": [2, 3, 4], "colorIndex": 0,
+      "summary": "17 份文件待处理；Tesseract 与 Poppler 已安装。",
+      "retained": ["输入目录：/app/documents/", "实际文件清单：11 JPG + 6 PDF", "可用工具：tesseract、pdftotext"]
+    },
+    {
+      "id": "extract", "title": "提取文本", "description": "批量生成后续分类需要的文本证据。",
+      "stepIds": [5], "colorIndex": 1,
+      "summary": "PDF 文本与 JPG OCR 结果已写入 /app/text/。",
+      "retained": ["6 份 PDF 已转为文本", "11 份 JPG 已完成 OCR", "文本目录供分类和金额提取使用"]
+    },
+    {
+      "id": "pdf", "title": "核对 PDF", "description": "分类 PDF，修正读取命令并提取发票金额。",
+      "stepIds": [6, 7, 8], "colorIndex": 2,
+      "summary": "6 份 PDF：3 份发票、3 份其他；发票总额为 4031、896、440。",
+      "retained": ["T0r6Ou8zvqTA.pdf：4031.00 / VAT 0", "UsN9tVTKskms.pdf：896.00 / VAT 0", "wIQEB5nR79b2.pdf：440.00 / VAT 0", "其余 3 份 PDF 归入 other；读取命令已修正"]
+    },
+    {
+      "id": "jpg", "title": "核对 JPG", "description": "分批阅读 OCR，识别发票和 Total / Amount Due 特例。",
+      "stepIds": [9, 10, 11, 12], "colorIndex": 3,
+      "summary": "11 份 JPG：7 份发票、4 份其他；两张发票按规则选用 Total。",
+      "retained": ["2lgKzDuI4E4g.jpg：6558.00，选 Total", "KrJiw0OZx7jf.jpg：9963.00，选 Total", "其余发票含税额：6860.45、819.06、797.91、6204.19、44745.59", "5 份 JPG 发票有 VAT；分类和金额已保留"]
+    },
+    {
+      "id": "produce", "title": "归档与汇总", "description": "消费此前结果，移动文件并写入 CSV。",
+      "stepIds": [13], "colorIndex": 4,
+      "summary": "10 份发票与 7 份其他文档已归档，summary.csv 已生成。",
+      "retained": ["CSV 列：filename、total_amount、vat_amount", "总金额：81315.20；VAT：5402.48", "原 documents 目录已为空"]
+    },
+    {
+      "id": "verify", "title": "收尾与完成", "description": "清理临时文本并确认任务完成。",
+      "stepIds": [14, 15], "colorIndex": 5,
+      "summary": "临时文本已清理，agent 已发出完成确认。",
+      "retained": ["/app/text 已清理", "最终目录：documents、invoices、other", "完成标记已提交；原轨迹未提供外部评分"]
+    }
+  ],
+  "higherGroups": [
+    {
+      "id": "classification",
+      "title": "全部文档判定结果",
+      "memberGroupIds": ["pdf", "jpg"],
+      "summary": "17 份文档已判定：10 份发票、7 份其他；逐文件分类、金额与 VAT 已保留，供归档汇总使用。",
+      "retained": ["合并 PDF 与 JPG 的分类结果，覆盖全部 17 份文件", "保留 10 份发票各自的文件名、含税总额、VAT 与证据回合", "保留 7 份其他文档的文件名与证据回合", "两张 Total / Amount Due 不一致的发票均选用 Total；缺少 VAT 按要求记 0", "向归档与 CSV 汇总提供逐文件结果"],
+      "records": {
+        "invoices": [
+          {"filename": "T0r6Ou8zvqTA.pdf", "total_amount": "4031.00", "vat_amount": "0.00", "evidenceStepId": 8},
+          {"filename": "UsN9tVTKskms.pdf", "total_amount": "896.00", "vat_amount": "0.00", "evidenceStepId": 8},
+          {"filename": "wIQEB5nR79b2.pdf", "total_amount": "440.00", "vat_amount": "0.00", "evidenceStepId": 8},
+          {"filename": "2lgKzDuI4E4g.jpg", "total_amount": "6558.00", "vat_amount": "0.00", "evidenceStepId": 9},
+          {"filename": "JOiylq2_7S18.jpg", "total_amount": "6860.45", "vat_amount": "623.68", "evidenceStepId": 10},
+          {"filename": "KrJiw0OZx7jf.jpg", "total_amount": "9963.00", "vat_amount": "0.00", "evidenceStepId": 10},
+          {"filename": "ivE2mt3HwvEO.jpg", "total_amount": "819.06", "vat_amount": "74.46", "evidenceStepId": 11},
+          {"filename": "lxtL9XrYRsVG.jpg", "total_amount": "797.91", "vat_amount": "72.54", "evidenceStepId": 11},
+          {"filename": "vvK89XK847m3.jpg", "total_amount": "6204.19", "vat_amount": "564.02", "evidenceStepId": 12},
+          {"filename": "w0i40MJP2Dzm.jpg", "total_amount": "44745.59", "vat_amount": "4067.78", "evidenceStepId": 12}
+        ],
+        "other": [
+          {"filename": "GFAlpKoFg81H.pdf", "evidenceStepId": 6},
+          {"filename": "dvkRkFVFhHga.pdf", "evidenceStepId": 6},
+          {"filename": "dx0AWchV01ZJ.pdf", "evidenceStepId": 6},
+          {"filename": "6NVuAIhTV4KB.jpg", "evidenceStepId": 9},
+          {"filename": "F0oZMhSUm2dO.jpg", "evidenceStepId": 9},
+          {"filename": "QOoA_j33PD_E.jpg", "evidenceStepId": 10},
+          {"filename": "WqWMArQQlSMv.jpg", "evidenceStepId": 11}
+        ]
+      }
+    }
+  ],
+  "steps": [
+    {"id": 2, "label": "检查文件与工具", "summary": "读取输入清单，检查 PDF / OCR 工具与 Python 库。", "result": "发现 17 份文件；OCR / PDF 工具缺失。", "kind": "inspect"},
+    {"id": 3, "label": "选择安装路径", "summary": "检查包管理器并刷新 apt 索引。", "result": "pip 不可用；apt 可用，索引更新完成。", "kind": "setup"},
+    {"id": 4, "label": "安装提取工具", "summary": "安装 tesseract-ocr 和 poppler-utils。", "result": "Tesseract 与 Poppler 安装成功。", "kind": "setup"},
+    {"id": 5, "label": "批量提取文本", "summary": "PDF 转文本，JPG 批量 OCR，输出到 /app/text/。", "result": "终端返回 PDF done 与 OCR done。", "kind": "extract"},
+    {"id": 6, "label": "识别 PDF 类型", "summary": "阅读 6 份 PDF 的文本开头，区分发票和其他文档。", "result": "识别出 3 份 PDF 发票与 3 份其他文档。", "kind": "review"},
+    {"id": 7, "label": "读取金额遇错", "summary": "尝试读取 3 份 PDF 发票末尾以定位总额。", "result": "tail -30 报错：option used in invalid context。", "kind": "review"},
+    {"id": 8, "label": "修正命令重试", "summary": "将 tail -30 改为 tail -n 30，重新读取发票金额。", "result": "读取总额 4031、896、440；未见 VAT。", "kind": "repair"},
+    {"id": 9, "label": "核对 JPG · 第一批", "summary": "阅读 3 份 JPG OCR 文本，发现 Total 与 Amount Due 不一致的发票。", "result": "1 份发票、2 份其他；按规则采用 Total 6558。", "kind": "review"},
+    {"id": 10, "label": "核对 JPG · 第二批", "summary": "继续阅读 3 份 JPG，提取含税额并处理第二个 Total 特例。", "result": "2 份发票、1 份其他；总额 6860.45 与 9963。", "kind": "review"},
+    {"id": 11, "label": "核对 JPG · 第三批", "summary": "检查下一批 3 份 JPG，保留总额与 VAT。", "result": "2 份发票、1 份其他；总额 819.06 与 797.91。", "kind": "review"},
+    {"id": 12, "label": "核对 JPG · 最后一批", "summary": "阅读最后 2 份 JPG，完成全部文档分类与金额提取。", "result": "2 份发票；总额 6204.19 与 44745.59。", "kind": "review"},
+    {"id": 13, "label": "移动文件并汇总", "summary": "归档 10 份发票、7 份其他文档，写入并读回 summary.csv。", "result": "总额 81315.20；VAT 5402.48；原目录为空。", "kind": "write"},
+    {"id": 14, "label": "清理并请求完成", "summary": "清理 OCR 临时文本，检查 /app 目录并请求完成。", "result": "临时目录已移除；系统要求再次确认完成。", "kind": "verify"},
+    {"id": 15, "label": "确认任务完成", "summary": "再次提交完成标记。", "result": "agent 已确认完成；无后续外部评分记录。", "kind": "finish"}
+  ],
+  "dependencies": [
+    {"source": 2, "target": 3, "label": "缺少工具 → 选择安装方式", "evidence": "call_0_2 / call_0_3 显示提取工具与相关库不可用；step 3 检查包管理器。"},
+    {"source": 3, "target": 4, "label": "apt 可用 → 安装", "evidence": "call_1_1 显示 pip 缺失而 apt 可用，call_1_2 完成索引更新；step 4 执行 apt-get install。"},
+    {"source": 4, "target": 5, "label": "工具就绪 → 文本提取", "evidence": "call_2_1 返回 tesseract-ocr / poppler-utils 安装结果；step 5 使用两者提取文本。"},
+    {"source": 5, "target": 6, "label": "PDF 文本 → 类型判断", "evidence": "call_3_1 生成 /app/text/*.pdf.txt；call_4_1 读取这些文件。"},
+    {"source": 6, "target": 7, "label": "3 份 PDF 发票 → 核对金额", "evidence": "call_4_1 输出 PDF 标题与内容；call_5_1 选择 T0r6Ou8zvqTA、UsN9tVTKskms、wIQEB5nR79b2。"},
+    {"source": 7, "target": 8, "label": "命令报错 → 修正重试", "evidence": "call_5_1 报 tail: option used in invalid context -- 3；call_6_1 改用 tail -n 30。"},
+    {"source": 5, "target": 9, "label": "OCR 文本 → JPG 分类", "evidence": "call_3_2 生成 JPG OCR 文本；call_7_1 至 call_7_3 读取第一批。"},
+    {"source": 5, "target": 10, "label": "OCR 文本 → 金额与 VAT", "evidence": "call_3_2 生成 JPG OCR 文本；call_8_1 至 call_8_3 读取第二批。"},
+    {"source": 5, "target": 11, "label": "OCR 文本 → 第三批核对", "evidence": "call_3_2 生成 JPG OCR 文本；call_9_1 至 call_9_3 读取第三批。"},
+    {"source": 5, "target": 12, "label": "OCR 文本 → 最后一批核对", "evidence": "call_3_2 生成 JPG OCR 文本；call_10_1 / call_10_2 读取最后两份。"},
+    {"source": 6, "target": 13, "label": "PDF 分类 → 归档", "evidence": "call_4_1 的 PDF 分类证据用于 call_11_1 的移动列表。"},
+    {"source": 8, "target": 13, "label": "PDF 金额 → CSV", "evidence": "call_6_1 输出 4031、896、440；call_11_2 将三项写入 summary.csv。"},
+    {"source": 9, "target": 13, "label": "第一批结果 → 归档与 CSV", "evidence": "call_7_1 的 Total 6558 和第一批分类用于 call_11_1 / call_11_2。"},
+    {"source": 10, "target": 13, "label": "第二批结果 → 归档与 CSV", "evidence": "call_8_1 / call_8_2 的总额与 VAT 以及第二批分类用于 call_11_1 / call_11_2。"},
+    {"source": 11, "target": 13, "label": "第三批结果 → 归档与 CSV", "evidence": "call_9_2 / call_9_3 的总额与 VAT 以及第三批分类用于 call_11_1 / call_11_2。"},
+    {"source": 12, "target": 13, "label": "最后一批结果 → CSV", "evidence": "call_10_1 / call_10_2 的总额与 VAT 用于 call_11_2。"},
+    {"source": 13, "target": 14, "label": "输出已核对 → 收尾", "evidence": "call_11_3 读回 summary.csv 并列出归档目录；step 14 清理 /app/text 并请求完成。"},
+    {"source": 14, "target": 15, "label": "完成提示 → 再次确认", "evidence": "step 14 observation 要求再次提交 task_complete；call_13_task_complete 确认完成。"}
+  ],
+  "compressions": [
+    {"afterStep": 4, "groupId": "env", "label": "压缩准备环境：保留工具就绪摘要"},
+    {"afterStep": 6, "groupId": "extract", "label": "压缩文本提取：保留产物位置与依赖"},
+    {"afterStep": 9, "groupId": "pdf", "label": "压缩 PDF 核对：保留分类与金额"},
+    {"afterStep": 12, "groupId": "jpg", "label": "压缩 JPG 核对：保留已完成的分类与金额"}
+  ],
+  "merges": [
+    {"afterStep": 12, "groupId": "classification", "label": "PDF 与 JPG 子图合并为高层摘要"}
+  ]
+}

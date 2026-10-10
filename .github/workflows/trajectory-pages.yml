@@ -1,0 +1,50 @@
+name: Publish trajectory animation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'trajectory-animation/**'
+      - 'trajectory.json'
+      - '.github/workflows/trajectory-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: github-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+      - name: Validate animation data and playback
+        run: |
+          python3 trajectory-animation/build_data.py
+          node trajectory-animation/tests/state.cjs
+      - name: Prepare static site
+        run: |
+          mkdir -p _site/share-with-chatgpt
+          cp trajectory-animation/index.html trajectory-animation/styles.css trajectory-animation/app.js trajectory-animation/data.js _site/
+          cp -R trajectory-animation/share-with-chatgpt/. _site/share-with-chatgpt/
+          touch _site/.nojekyll
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Upload static site
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,47 @@
+[
+  {
+    "file": "00-empty.jpg",
+    "time": 0,
+    "title": "空图，等待主 Agent 开始"
+  },
+  {
+    "file": "01-growth.jpg",
+    "time": 18.49,
+    "title": "准备环境的三个回合逐步出现，尚未折叠"
+  },
+  {
+    "file": "02-leaf-compression.jpg",
+    "time": 21.79,
+    "title": "环境子图折叠为摘要，已有依赖继续连接"
+  },
+  {
+    "file": "03-feedback-error.jpg",
+    "time": 38.99,
+    "title": "第 7 回合读取失败；下一回合将调整命令"
+  },
+  {
+    "file": "04-two-subgraphs.jpg",
+    "time": 74.89,
+    "title": "PDF 与 JPG 子图分别形成摘要，等待二级合并"
+  },
+  {
+    "file": "05-merging.jpg",
+    "time": 76.7,
+    "title": "二级合并进行中，两个子图向高层摘要收拢"
+  },
+  {
+    "file": "06-higher-summary.jpg",
+    "time": 78.9,
+    "title": "二级合并完成，7 个回合由同一个高层摘要代表"
+  },
+  {
+    "file": "07-continue-execution.jpg",
+    "time": 86.44,
+    "title": "主 Agent 继续归档与汇总，高层摘要向后续行动提供依赖"
+  },
+  {
+    "file": "08-complete.jpg",
+    "time": 99.1,
+    "title": "全部执行完成，摘要与后续回合共同构成最终图"
+  }
+]

@@ -1,0 +1,24 @@
+如何让网页版 ChatGPT 看懂这个动画
+
+1. 解压 ChatGPT-Pro-upload.zip。
+2. 打开网页版 ChatGPT，在同一个对话中上传文件名 00–08 开头的九张 JPG，以及 execution-events.txt。
+   若界面限制一次上传数量，可以分两条消息上传，并说明“文件还没传完，请先等待”。
+3. 上传完成后，复制下面这段提示：
+
+请把 00–08 的图片按编号视为同一动画的连续关键帧，并结合 execution-events.txt 中的完整 63 个事件，理解主 Agent 从空图开始构建轨迹、根据工具反馈继续行动、折叠子图、把 PDF 与 JPG 子图合并为高层摘要、保留依赖并继续执行的过程。请先复述这个过程，再评价压缩与依赖展示是否清楚。原始 action / observation 来自真实轨迹；分组、依赖和压缩时点属于人工演示设计。请不要把图节点减少等同于已经验证的 token 节省或模型效果。
+
+如果希望 GPT 修改动画，再上传 animation-source.txt。
+该文件包含完整 HTML、CSS、JavaScript 和案例数据，请要求它返回修改后的完整单文件 HTML。
+
+文件用途：
+- 00–08 开头的 JPG：实际浏览器截图，按动画时间排列。
+- execution-events.txt：关键帧对应秒数、完整事件序列、工具命令、原始回合证据、摘要与依赖。
+- animation-standalone.html：双击后在浏览器中独立播放，不需要本地服务。
+- animation-source.txt：与上面的 HTML 内容相同，作为文字源码交给 GPT 阅读和修改。
+- keyframes.json：截图文件名、时间、阶段说明，供后续重新导出时使用。
+- process-preview.jpg：三幅关键画面的概览；完整阅读请使用 00–08 原始图片。
+
+注意：127.0.0.1 是本机地址，无法供网页版 GPT 从云端访问。单独上传 HTML 源码也不能保证它实际播放了动画。
+九张图覆盖重要变化，全部 63 个播放事件保存在 execution-events.txt；没有逐帧视频。
+
+公开上传方式参考：https://learn.chatgpt.com/docs/image-inputs

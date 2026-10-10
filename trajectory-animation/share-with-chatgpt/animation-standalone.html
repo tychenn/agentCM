@@ -1,0 +1,1122 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Agent 轨迹 · 生长与压缩</title>
+  <style>
+:root{--paper:#f7f8fa;--ink:#202a3a;--muted:#747f91;--blue:#3567dc;--blue-soft:#edf2fd;--line:#e2e6ed;--green:#388c78;--purple:#8060b6;--orange:#c38138;--mono:ui-monospace,SFMono-Regular,Menlo,monospace;font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;color:var(--ink);font-synthesis:none}
+*{box-sizing:border-box}body{margin:0;background:var(--paper)}button,input,select{font:inherit}button,select,summary{cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:3px solid #95b5ff;outline-offset:3px}button{color:inherit}button:disabled{opacity:.4;cursor:default}.app{max-width:1600px;margin:auto;padding:32px 40px 22px}.header{display:flex;justify-content:space-between;align-items:center;gap:30px;margin-bottom:27px}.eyebrow{font-size:10px;font-weight:650;letter-spacing:2px;color:#64738b;display:flex;align-items:center;gap:12px}.brand-mark{font-size:24px;line-height:24px;color:var(--blue);letter-spacing:0}.slash{color:#b9c2d1}h1{font-size:32px;font-weight:600;letter-spacing:-1.2px;line-height:1.3;margin:15px 0 8px}h1 span{color:var(--blue)}.subtitle{font-size:13px;color:var(--muted);margin:0}.case-note{display:flex;flex-direction:column;gap:7px;text-align:right;font-size:11px;color:var(--muted)}.case-note strong{font-size:14px;font-weight:550;color:var(--ink)}.small-label{font-size:10px;letter-spacing:1.4px;color:var(--muted);font-weight:600}.workspace{display:grid;grid-template-columns:minmax(0,1fr) 290px;min-height:590px;border:1px solid var(--line);border-radius:18px;background:#fff;overflow:hidden;box-shadow:0 6px 30px #28375004}.graph-column{min-width:0;display:flex;flex-direction:column}.graph-toolbar{min-height:58px;display:flex;align-items:center;justify-content:space-between;gap:15px;padding:0 24px;border-bottom:1px solid #f0f2f6}.live-label{display:flex;align-items:center;gap:8px;font-size:11px;color:#627189}.live-dot{height:6px;width:6px;border-radius:100%;background:#aab4c4}.live-dot.playing{background:var(--green)}.legend{display:flex;gap:14px;color:var(--muted);font-size:10px}.legend>span{display:flex;align-items:center;gap:5px}.legend-dot{width:7px;height:7px;border-radius:50%;background:var(--blue)}.legend-summary{width:10px;height:7px;border-radius:2px;background:var(--purple)}.legend-edge{width:13px;height:1px;background:#889abb;position:relative}.legend-edge:after{content:"";position:absolute;right:0;top:-2px;border-left:4px solid #889abb;border-top:2px solid transparent;border-bottom:2px solid transparent}.graph-stage{position:relative;flex:1;min-height:490px;background-image:radial-gradient(#d4dbe580 .7px,transparent .7px);background-size:18px 18px;background-position:9px 9px}.graph-stage svg{display:block;width:100%;height:100%;min-height:490px;overflow:visible}.empty-state{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;pointer-events:none}.empty-state[hidden]{display:none}.empty-state strong{font-size:15px;font-weight:500}.empty-state>span{font-size:12px;color:var(--muted)}.empty-orbit{width:100px;height:100px;border-radius:50%;border:1px dashed #cbd6e8;display:grid;place-items:center;margin-bottom:10px}.empty-orbit span{display:grid;place-items:center;width:42px;height:42px;background:#edf2fc;color:var(--blue);border-radius:14px;font:500 17px var(--mono)}.graph-bottom{min-height:44px;padding:11px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid #f0f2f6;font-size:10px;color:var(--muted)}.text-button{border:none;background:none;padding:0;font-size:11px;color:var(--blue);white-space:nowrap}.inspector{border-left:1px solid var(--line);background:#fcfcfe;padding:24px 22px;display:flex;flex-direction:column;min-width:0}.inspector-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:27px}.mono{font-family:var(--mono);font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}.event-type{font:550 10px var(--mono);letter-spacing:.8px;color:var(--blue);margin-bottom:10px}h2{font-size:20px;line-height:1.5;margin:0 0 10px;font-weight:550;letter-spacing:-.3px}#event-description{font-size:12px;line-height:1.85;margin:0 0 17px;color:#69758a;overflow-wrap:anywhere}.action-box{background:#f0f3f8;border-radius:8px;padding:13px;margin-bottom:18px;min-width:0}.action-box pre{font:10px/1.75 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;max-height:160px;overflow:auto;margin:8px 0 0;color:#4a6080}.compression-box{background:#f1edf9;border-radius:8px;padding:14px;margin-bottom:18px}.compression-box .small-label{color:#8060b6}.compression-box ul{padding-left:16px;margin:10px 0;font-size:11px;line-height:1.9;color:#665780}.compression-foot{font-size:10px;line-height:1.6;color:#8e7aa8}.context-stat{margin-top:5px;margin-bottom:23px}.stat-header{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:var(--muted)}.stat-header strong{font:500 22px var(--mono);color:var(--ink);white-space:nowrap}.stat-unit{font:10px var(--mono);color:var(--muted)}.stat-track{height:4px;background:#e9edf5;border-radius:2px;margin-top:12px;overflow:hidden}.stat-track div{height:100%;background:var(--blue);width:0;transition:width .35s}.context-stat p{font-size:10px;line-height:1.7;margin:8px 0 0;color:#8993a4}.provenance{display:flex;align-items:flex-start;gap:8px;margin-top:auto;padding-top:20px;font-size:10px;line-height:1.8;color:#929aa9}.provenance-mark{border:1px solid #b6becb;border-radius:50%;width:13px;height:13px;line-height:12px;flex:none;text-align:center;margin-top:3px;font-size:9px}.provenance p{margin:0}.provenance code{font-size:9px}.inspect-section{margin-bottom:12px}.group-control{display:flex;align-items:center;justify-content:space-between;gap:5px;margin-top:9px;font-size:11px}.group-control button{border:1px solid var(--line);background:#fff;border-radius:5px;padding:4px 7px;font-size:10px;color:var(--purple)}details{margin-top:15px;font-size:10px;color:var(--muted)}summary{line-height:1.6}#evidence-body{margin-top:10px;max-height:230px;overflow:auto}#evidence-body h3{font-size:10px;color:#65748c;margin:12px 0 5px}#evidence-body pre{white-space:pre-wrap;overflow-wrap:anywhere;font:10px/1.7 var(--mono);margin:0;color:#6e7889}.player{margin-top:20px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 21px 13px}.player-main{display:flex;align-items:center;gap:9px}.play-button{border:0;border-radius:7px;background:var(--blue);color:#fff;padding:10px 17px;font-size:12px;min-width:112px;font-weight:500}.secondary-button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:9px 11px;font-size:11px;white-space:nowrap}.player-status{margin-left:10px;font-size:11px;color:var(--muted);flex:1;min-width:0}.speed-control{display:flex;align-items:center;gap:9px;font-size:10px;color:var(--muted)}.speed-control select{border:1px solid var(--line);border-radius:6px;padding:6px 9px;background:#fff;color:#536178;font:11px var(--mono)}.timeline-row{display:flex;align-items:center;gap:12px;margin-top:14px}.timeline-wrap{position:relative;flex:1;min-width:0}input[type=range]{display:block;accent-color:var(--blue);width:100%;margin:0;height:18px;cursor:pointer}.timeline-markers{position:relative;height:8px;margin:0 8px;pointer-events:none}.timeline-marker{position:absolute;width:4px;height:4px;border-radius:1px;background:var(--purple);top:2px;transform:rotate(45deg)}.chapter-row{display:flex;justify-content:space-between;gap:6px;margin:8px 45px 0}.chapter-button{border:0;background:none;color:#8c96a7;padding:3px 0;font-size:10px;text-align:left;white-space:nowrap}.chapter-button.active{color:var(--blue)}footer{display:flex;justify-content:space-between;gap:15px;font-size:10px;color:#9ba3b0;margin-top:17px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.graph-node{cursor:pointer}.graph-node:focus{outline:none}.graph-node:focus-visible rect{stroke:var(--blue);stroke-width:2}.graph-text{font-family:Inter,-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif}.graph-mono{font-family:var(--mono)}[hidden]{display:none!important}
+@media(min-width:1500px){.workspace{grid-template-columns:minmax(0,1fr) 320px}.inspector{padding:25px 27px}}
+@media(max-width:1050px){.app{padding:24px}.workspace{grid-template-columns:minmax(0,1fr) 255px}.inspector{padding:20px 18px}.legend{gap:8px}.graph-toolbar{padding:0 18px}.player-status{display:none}.speed-control{margin-left:auto}h1{font-size:28px}}
+@media(max-width:780px){.app{padding:20px 14px}.header{align-items:flex-start}.case-note{max-width:165px;font-size:10px}h1{font-size:24px}.eyebrow{font-size:8px;letter-spacing:1px;gap:7px}.workspace{grid-template-columns:1fr}.inspector{border-left:0;border-top:1px solid var(--line);display:grid;grid-template-columns:1fr 1fr;gap:0 22px}.inspector-heading,.provenance{grid-column:1/-1}.inspector-heading{margin-bottom:18px}.event-type,h2,#event-description{grid-column:1}.action-box,.compression-box{grid-column:2;grid-row:2/5;align-self:start}.context-stat{grid-column:1}.inspect-section{grid-column:2;grid-row:5/7}.provenance{padding-top:4px}.graph-bottom{padding:12px 18px}.chapter-row{margin-left:0;margin-right:0;flex-wrap:wrap;justify-content:flex-start;gap:5px 18px}footer{font-size:9px}.graph-stage{min-height:470px}}
+@media(max-width:480px){.case-note{display:none}.header{margin-bottom:20px}.app{padding:20px 12px}.legend{font-size:9px;gap:7px}.graph-toolbar{padding:0 12px}.player{padding:14px 12px}.player-main{flex-wrap:wrap;gap:7px}.play-button{padding:9px 12px;min-width:105px}.secondary-button{padding:8px;font-size:10px}.speed-control{margin-left:0}.inspector{display:flex}.action-box,.compression-box{width:100%}.graph-bottom{font-size:9px;gap:5px}.subtitle{font-size:12px}footer{flex-direction:column;gap:6px}.inspector-heading{margin-bottom:16px}.chapter-button{font-size:9px}}
+.higher-control{padding:8px 0;border-bottom:1px solid #e5ddef}.higher-control>span{max-width:130px;color:var(--purple)}.higher-control button{white-space:nowrap}.higher-marker{width:7px;height:7px;background:#735399;top:0}.chapter-button[data-group="classification"]{color:var(--purple);font-weight:550}#result-records{margin:0 0 20px;color:#79608f}#result-records-body{margin-top:10px;max-height:350px;overflow:auto}.records-table{width:100%;border-collapse:collapse;font-size:9px;line-height:1.7}.records-table th{text-align:left;font-weight:500;color:#8a7b99;padding:5px 3px;border-bottom:1px solid #e6deee}.records-table td{padding:7px 3px;border-bottom:1px solid #eee9f5;color:#675772;vertical-align:top}.records-table td:first-child{overflow-wrap:anywhere}.records-table th:not(:first-child),.records-table td:not(:first-child){text-align:right;font-family:var(--mono);white-space:nowrap}.records-table small{display:block;color:#a092ae;font-size:8px}.records-other{margin:14px 0 6px;font-size:10px}.records-files{padding-left:15px;margin:0;font:9px/1.9 var(--mono);overflow-wrap:anywhere}.records-files small{color:#a092ae}.inspector:has(#result-records:not([hidden])) #compression-box{margin-bottom:10px}
+@media(max-width:780px){#result-records{grid-column:2;grid-row:7}.higher-control>span{max-width:none}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important}}
+
+</style>
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div><div class="eyebrow"><span class="brand-mark">↗</span> AGENT CONTEXT LAB <span class="slash">/</span> TRAJECTORY 001</div>
+        <h1>轨迹，随行动生长<span>。</span></h1>
+        <p class="subtitle">从一次工具调用，到一张可压缩的任务图。</p>
+      </div>
+      <div class="case-note"><span class="small-label">本次案例</span><strong>文档分类与发票汇总</strong><span>17 份文件 · 14 个回合 · 28 次工具调用</span></div>
+    </header>
+
+    <section class="workspace" aria-label="轨迹动画">
+      <div class="graph-column">
+        <div class="graph-toolbar"><div class="live-label"><span id="live-dot" class="live-dot"></span><span id="mode-label">准备开始</span></div>
+          <div class="legend"><span><i class="legend-dot"></i>回合</span><span><i class="legend-summary"></i>压缩摘要</span><span><i class="legend-edge"></i>保留依赖</span></div>
+        </div>
+        <div id="graph-stage" class="graph-stage">
+          <svg id="graph" role="img" aria-labelledby="graph-title graph-desc"><title id="graph-title">主 Agent 执行与子任务压缩动画</title><desc id="graph-desc">轨迹从空白逐步构建，已完成子图可收拢为摘要，依赖连线随摘要移动。</desc></svg>
+          <div id="empty-state" class="empty-state"><div class="empty-orbit"><span>A</span></div><strong>一张空白的轨迹图</strong><span>播放后，跟随主 Agent 的每一次行动。</span></div>
+        </div>
+        <div class="graph-bottom"><span id="graph-caption">任务到达 → 执行 action → 形成子图 → 压缩为摘要</span><button id="overview" class="text-button" type="button">跳到完成</button></div>
+      </div>
+
+      <aside class="inspector" aria-label="当前行动与节点详情">
+        <div class="inspector-heading"><span class="small-label">EXECUTION NOTES</span><span id="event-number" class="mono">00 / 00</span></div>
+        <div class="event-type" id="event-type">等待执行</div>
+        <h2 id="event-title">让轨迹开始生长</h2>
+        <p id="event-description">真实回合和工具调用构成子图；演示压缩保留任务摘要与后续依赖。</p>
+        <div id="action-box" class="action-box" hidden><div id="action-label" class="small-label">ACTION</div><pre id="action-code"></pre></div>
+        <div id="compression-box" class="compression-box" hidden><div class="small-label">压缩后保留</div><ul id="retained-list"></ul><div class="compression-foot">原始节点可在下方重新展开查看。</div></div>
+        <details id="result-records" hidden><summary>查看结构化结果 · 17 份文档</summary><div id="result-records-body"></div></details>
+        <div class="context-stat"><div class="stat-header"><span>图中回合 / 摘要节点</span><strong><span id="visible-count">0</span><span class="stat-unit"> / <span id="original-count">0</span> 原始回合</span></strong></div><div class="stat-track"><div id="stat-bar"></div></div><p id="stat-note">随图构建而变化；压缩时以 1 个摘要替代多个回合。</p></div>
+        <div id="inspect-section" class="inspect-section" hidden><div class="small-label">子图检查</div><div id="group-controls"></div><details id="evidence-details"><summary>查看选中回合的原始记录</summary><div id="evidence-body"></div></details></div>
+        <div class="provenance"><span class="provenance-mark">i</span><p>回合与命令来自 <code>trajectory.json</code>。分组、依赖及压缩时点为人工演示设计。</p></div>
+      </aside>
+    </section>
+
+    <section class="player" aria-label="播放控制">
+      <div class="player-main"><button id="play" class="play-button" type="button">▶ 从零播放</button><button id="restart" class="secondary-button" aria-label="重新开始" type="button">↺ 重播</button><button id="previous" class="secondary-button" type="button">上一步</button><button id="next" class="secondary-button" type="button">下一步</button>
+        <div id="player-status" class="player-status" role="status" aria-live="polite">准备好开始</div>
+        <label class="speed-control">速度<select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option></select></label>
+      </div>
+      <div class="timeline-row"><span id="elapsed" class="mono">00:00</span><div class="timeline-wrap"><label class="sr-only" for="timeline">动画进度</label><input id="timeline" type="range" min="0" max="100" value="0" step="0.01"><div id="timeline-markers" class="timeline-markers"></div></div><span id="duration" class="mono">00:00</span></div>
+      <div class="chapter-row" id="chapters"></div>
+    </section>
+    <footer><span>可回放 · 可暂停 · 可检查子图 · <a href="execution-events.txt">完整事件记录</a> · <a href="ChatGPT-Pro-upload.zip" download>下载分享材料</a></span><span>压缩仅改变图的展示，完整轨迹始终保留。</span></footer>
+  </main>
+  <script>
+// Generated by build_data.py; edit storyboard.json and rebuild.
+window.TRAJECTORY_DEMO = {
+  "meta": {
+    "title": "轨迹生长与子任务压缩",
+    "task": "整理 17 份 JPG / PDF：识别发票、提取含税总额与 VAT，归档并生成汇总表。",
+    "agent": "terminus-2",
+    "source": "../trajectory.json",
+    "sourceSha256": "b4a29783e2c20c4140b116eb5b8ee5e5c13e24d28ad1e99519eda08c7dff4208",
+    "sourceStepCount": 15,
+    "agentStepCount": 14,
+    "toolCallCount": 28,
+    "compressionNote": "轨迹中的执行、工具输出来自原始记录；子任务分组、依赖连线、叶子压缩与高层归并时点为人工编排的可编辑演示。原始记录未发生这些压缩，未验证压缩后的模型效果。",
+    "dependencyNote": "连线依据原始 action 和 observation 人工标注，用于说明信息如何沿轨迹传递；未经模型自动建图或干预实验验证。执行顺序由步骤编号表达。",
+    "tokenNote": "promptTokens 是原始轨迹每轮真实输入 token 记录，包含运行框架开销；动画未测量压缩后的 token 数。"
+  },
+  "groups": [
+    {
+      "id": "env",
+      "title": "准备环境",
+      "description": "检查文件和工具，选择可用安装方式。",
+      "stepIds": [
+        2,
+        3,
+        4
+      ],
+      "colorIndex": 0,
+      "summary": "17 份文件待处理；Tesseract 与 Poppler 已安装。",
+      "retained": [
+        "输入目录：/app/documents/",
+        "实际文件清单：11 JPG + 6 PDF",
+        "可用工具：tesseract、pdftotext"
+      ]
+    },
+    {
+      "id": "extract",
+      "title": "提取文本",
+      "description": "批量生成后续分类需要的文本证据。",
+      "stepIds": [
+        5
+      ],
+      "colorIndex": 1,
+      "summary": "PDF 文本与 JPG OCR 结果已写入 /app/text/。",
+      "retained": [
+        "6 份 PDF 已转为文本",
+        "11 份 JPG 已完成 OCR",
+        "文本目录供分类和金额提取使用"
+      ]
+    },
+    {
+      "id": "pdf",
+      "title": "核对 PDF",
+      "description": "分类 PDF，修正读取命令并提取发票金额。",
+      "stepIds": [
+        6,
+        7,
+        8
+      ],
+      "colorIndex": 2,
+      "summary": "6 份 PDF：3 份发票、3 份其他；发票总额为 4031、896、440。",
+      "retained": [
+        "T0r6Ou8zvqTA.pdf：4031.00 / VAT 0",
+        "UsN9tVTKskms.pdf：896.00 / VAT 0",
+        "wIQEB5nR79b2.pdf：440.00 / VAT 0",
+        "其余 3 份 PDF 归入 other；读取命令已修正"
+      ]
+    },
+    {
+      "id": "jpg",
+      "title": "核对 JPG",
+      "description": "分批阅读 OCR，识别发票和 Total / Amount Due 特例。",
+      "stepIds": [
+        9,
+        10,
+        11,
+        12
+      ],
+      "colorIndex": 3,
+      "summary": "11 份 JPG：7 份发票、4 份其他；两张发票按规则选用 Total。",
+      "retained": [
+        "2lgKzDuI4E4g.jpg：6558.00，选 Total",
+        "KrJiw0OZx7jf.jpg：9963.00，选 Total",
+        "其余发票含税额：6860.45、819.06、797.91、6204.19、44745.59",
+        "5 份 JPG 发票有 VAT；分类和金额已保留"
+      ]
+    },
+    {
+      "id": "produce",
+      "title": "归档与汇总",
+      "description": "消费此前结果，移动文件并写入 CSV。",
+      "stepIds": [
+        13
+      ],
+      "colorIndex": 4,
+      "summary": "10 份发票与 7 份其他文档已归档，summary.csv 已生成。",
+      "retained": [
+        "CSV 列：filename、total_amount、vat_amount",
+        "总金额：81315.20；VAT：5402.48",
+        "原 documents 目录已为空"
+      ]
+    },
+    {
+      "id": "verify",
+      "title": "收尾与完成",
+      "description": "清理临时文本并确认任务完成。",
+      "stepIds": [
+        14,
+        15
+      ],
+      "colorIndex": 5,
+      "summary": "临时文本已清理，agent 已发出完成确认。",
+      "retained": [
+        "/app/text 已清理",
+        "最终目录：documents、invoices、other",
+        "完成标记已提交；原轨迹未提供外部评分"
+      ]
+    }
+  ],
+  "higherGroups": [
+    {
+      "id": "classification",
+      "title": "全部文档判定结果",
+      "memberGroupIds": [
+        "pdf",
+        "jpg"
+      ],
+      "summary": "17 份文档已判定：10 份发票、7 份其他；逐文件分类、金额与 VAT 已保留，供归档汇总使用。",
+      "retained": [
+        "合并 PDF 与 JPG 的分类结果，覆盖全部 17 份文件",
+        "保留 10 份发票各自的文件名、含税总额、VAT 与证据回合",
+        "保留 7 份其他文档的文件名与证据回合",
+        "两张 Total / Amount Due 不一致的发票均选用 Total；缺少 VAT 按要求记 0",
+        "向归档与 CSV 汇总提供逐文件结果"
+      ],
+      "records": {
+        "invoices": [
+          {
+            "filename": "T0r6Ou8zvqTA.pdf",
+            "total_amount": "4031.00",
+            "vat_amount": "0.00",
+            "evidenceStepId": 8
+          },
+          {
+            "filename": "UsN9tVTKskms.pdf",
+            "total_amount": "896.00",
+            "vat_amount": "0.00",
+            "evidenceStepId": 8
+          },
+          {
+            "filename": "wIQEB5nR79b2.pdf",
+            "total_amount": "440.00",
+            "vat_amount": "0.00",
+            "evidenceStepId": 8
+          },
+          {
+            "filename": "2lgKzDuI4E4g.jpg",
+            "total_amount": "6558.00",
+            "vat_amount": "0.00",
+            "evidenceStepId": 9
+          },
+          {
+            "filename": "JOiylq2_7S18.jpg",
+            "total_amount": "6860.45",
+            "vat_amount": "623.68",
+            "evidenceStepId": 10
+          },
+          {
+            "filename": "KrJiw0OZx7jf.jpg",
+            "total_amount": "9963.00",
+            "vat_amount": "0.00",
+            "evidenceStepId": 10
+          },
+          {
+            "filename": "ivE2mt3HwvEO.jpg",
+            "total_amount": "819.06",
+            "vat_amount": "74.46",
+            "evidenceStepId": 11
+          },
+          {
+            "filename": "lxtL9XrYRsVG.jpg",
+            "total_amount": "797.91",
+            "vat_amount": "72.54",
+            "evidenceStepId": 11
+          },
+          {
+            "filename": "vvK89XK847m3.jpg",
+            "total_amount": "6204.19",
+            "vat_amount": "564.02",
+            "evidenceStepId": 12
+          },
+          {
+            "filename": "w0i40MJP2Dzm.jpg",
+            "total_amount": "44745.59",
+            "vat_amount": "4067.78",
+            "evidenceStepId": 12
+          }
+        ],
+        "other": [
+          {
+            "filename": "GFAlpKoFg81H.pdf",
+            "evidenceStepId": 6
+          },
+          {
+            "filename": "dvkRkFVFhHga.pdf",
+            "evidenceStepId": 6
+          },
+          {
+            "filename": "dx0AWchV01ZJ.pdf",
+            "evidenceStepId": 6
+          },
+          {
+            "filename": "6NVuAIhTV4KB.jpg",
+            "evidenceStepId": 9
+          },
+          {
+            "filename": "F0oZMhSUm2dO.jpg",
+            "evidenceStepId": 9
+          },
+          {
+            "filename": "QOoA_j33PD_E.jpg",
+            "evidenceStepId": 10
+          },
+          {
+            "filename": "WqWMArQQlSMv.jpg",
+            "evidenceStepId": 11
+          }
+        ]
+      },
+      "stepIds": [
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12
+      ],
+      "level": 2
+    }
+  ],
+  "steps": [
+    {
+      "id": 2,
+      "label": "检查文件与工具",
+      "summary": "读取输入清单，检查 PDF / OCR 工具与 Python 库。",
+      "result": "发现 17 份文件；OCR / PDF 工具缺失。",
+      "kind": "inspect",
+      "groupId": "env",
+      "message": "Analysis: Starting fresh at /app. Need to examine the documents directory to see what files exist, then determine tools available for OCR/PDF text extraction.\nPlan: List the files in /app/documents, check available tools (pdftotext, tesseract, python libraries) to extract text from PDFs and JPGs.",
+      "toolCalls": [
+        {
+          "id": "call_0_1",
+          "name": "bash_command",
+          "command": "ls -la /app/documents/\n"
+        },
+        {
+          "id": "call_0_2",
+          "name": "bash_command",
+          "command": "which pdftotext tesseract python3 pip3\n"
+        },
+        {
+          "id": "call_0_3",
+          "name": "bash_command",
+          "command": "python3 -c \"import pytesseract, PIL, pypdf\" 2>&1; python3 -c \"import fitz\" 2>&1\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app# ls -la /app/documents/\ntotal 3948\ndrwxr-xr-x 2 root root   4096 Oct 28  2025 .\ndrwxr-xr-x 3 root root     31 Oct 28  2025 ..\n-rw-r--r-- 1 root root 770021 Oct 28  2025 2lgKzDuI4E4g.jpg\n-rw-r--r-- 1 root root 287187 Oct 28  2025 6NVuAIhTV4KB.jpg\n-rw-r--r-- 1 root root 110509 Oct 28  2025 F0oZMhSUm2dO.jpg\n-rw-r--r-- 1 root root   1629 Oct 28  2025 GFAlpKoFg81H.pdf\n-rw-r--r-- 1 root root 220646 Oct 28  2025 JOiylq2_7S18.jpg\n-rw-r--r-- 1 root root 626863 Oct 28  2025 KrJiw0OZx7jf.jpg\n-rw-r--r-- 1 root root 885857 Oct 28  2025 QOoA_j33PD_E.jpg\n-rw-r--r-- 1 root root   2046 Oct 28  2025 T0r6Ou8zvqTA.pdf\n-rw-r--r-- 1 root root   2019 Oct 28  2025 UsN9tVTKskms.pdf\n-rw-r--r-- 1 root root 202461 Oct 28  2025 WqWMArQQlSMv.jpg\n-rw-r--r-- 1 root root   8412 Oct 28  2025 dvkRkFVFhHga.pdf\n-rw-r--r-- 1 root root   2780 Oct 28  2025 dx0AWchV01ZJ.pdf\n-rw-r--r-- 1 root root 221526 Oct 28  2025 ivE2mt3HwvEO.jpg\n-rw-r--r-- 1 root root 212125 Oct 28  2025 lxtL9XrYRsVG.jpg\n-rw-r--r-- 1 root root 254400 Oct 28  2025 vvK89XK847m3.jpg\n-rw-r--r-- 1 root root 192117 Oct 28  2025 w0i40MJP2Dzm.jpg\n-rw-r--r-- 1 root root   2052 Oct 28  2025 wIQEB5nR79b2.pdf\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app# which pdftotext tesseract python3 pip3\n/usr/bin/python3\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app# python3 -c \"import pytesseract, PIL, pypdf\" 2>&1; python3 -c \"import fitz\" 2>&1\nTraceback (most recent call last):\n  File \"\u003cstring>\", line 1, in \u003cmodule>\nModuleNotFoundError: No module named 'pytesseract'\nTraceback (most recent call last):\n  File \"\u003cstring>\", line 1, in \u003cmodule>\nModuleNotFoundError: No module named 'fitz'\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app#\n\n\n\n\n\n\n\n\n\n",
+      "promptTokens": 1384
+    },
+    {
+      "id": 3,
+      "label": "选择安装路径",
+      "summary": "检查包管理器并刷新 apt 索引。",
+      "result": "pip 不可用；apt 可用，索引更新完成。",
+      "kind": "setup",
+      "groupId": "env",
+      "message": "Analysis: There are 10 JPG files and 6 PDF files in /app/documents. No pdftotext, tesseract, or relevant Python libraries available. I need to install OCR tools (tesseract for JPGs) and PDF text extraction tools.\nPlan: Check pip availability and try installing pytesseract/pypdf via pip, and tesseract-ocr + poppler-utils via apt. First check what package managers work.",
+      "toolCalls": [
+        {
+          "id": "call_1_1",
+          "name": "bash_command",
+          "command": "python3 -m pip --version; apt-get --version | head -1\n"
+        },
+        {
+          "id": "call_1_2",
+          "name": "bash_command",
+          "command": "apt-get update -qq 2>&1 | tail -2\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app# python3 -m pip --version; apt-get --version | head -1\n/usr/bin/python3: No module named pip\napt 2.8.3 (amd64)\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app# apt-get update -qq 2>&1 | tail -2\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app#\n\n\n\n\n\n",
+      "promptTokens": 2840
+    },
+    {
+      "id": 4,
+      "label": "安装提取工具",
+      "summary": "安装 tesseract-ocr 和 poppler-utils。",
+      "result": "Tesseract 与 Poppler 安装成功。",
+      "kind": "setup",
+      "groupId": "env",
+      "message": "Analysis: No pip, but apt works and update completed. I'll install tesseract-ocr for JPG OCR and poppler-utils for pdftotext.\nPlan: Install tesseract-ocr and poppler-utils via apt-get. This may take a while.",
+      "toolCalls": [
+        {
+          "id": "call_2_1",
+          "name": "bash_command",
+          "command": "apt-get install -y -qq tesseract-ocr poppler-utils 2>&1 | tail -3\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app# apt-get install -y -qq tesseract-ocr poppler-utils 2>&1 | tail -3\nSetting up tesseract-ocr (5.3.4-1build5) ...\nSetting up poppler-utils (24.02.0-1ubuntu9.8) ...\nProcessing triggers for libc-bin (2.39-0ubuntu8.6) ...\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app#\n\n",
+      "promptTokens": 3327
+    },
+    {
+      "id": 5,
+      "label": "批量提取文本",
+      "summary": "PDF 转文本，JPG 批量 OCR，输出到 /app/text/。",
+      "result": "终端返回 PDF done 与 OCR done。",
+      "kind": "extract",
+      "groupId": "extract",
+      "message": "Analysis: tesseract-ocr and poppler-utils installed successfully. Now I need to extract text from all files to classify them.\nPlan: Extract text from all PDFs using pdftotext and all JPGs using tesseract into a /app/text directory, then review the text content to classify documents and extract amounts.",
+      "toolCalls": [
+        {
+          "id": "call_3_1",
+          "name": "bash_command",
+          "command": "mkdir -p /app/text && cd /app/documents && for f in *.pdf; do pdftotext \"$f\" /app/text/\"$f\".txt; done && echo PDF done\n"
+        },
+        {
+          "id": "call_3_2",
+          "name": "bash_command",
+          "command": "for f in *.jpg; do tesseract \"$f\" /app/text/\"$f\" 2>/dev/null; done && echo OCR done\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app# mkdir -p /app/text && cd /app/documents && for f in *.pdf; do pdftotext \"$f\" /app/text/\"$f\".txt; done && echo PD\nF done\nPDF done\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# for f in *.jpg; do tesseract \"$f\" /app/text/\"$f\" 2>/dev/null; done && echo OCR done\nOCR done\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 3744
+    },
+    {
+      "id": 6,
+      "label": "识别 PDF 类型",
+      "summary": "阅读 6 份 PDF 的文本开头，区分发票和其他文档。",
+      "result": "识别出 3 份 PDF 发票与 3 份其他文档。",
+      "kind": "review",
+      "groupId": "pdf",
+      "message": "Analysis: Text extraction complete for all PDFs and JPGs. Now I need to review the extracted text to classify documents and find amounts.\nPlan: View the extracted text files to classify each document as invoice or other, and identify total/VAT amounts.",
+      "toolCalls": [
+        {
+          "id": "call_4_1",
+          "name": "bash_command",
+          "command": "ls /app/text/ && head -50 /app/text/*.pdf.txt\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# ls /app/text/ && head -50 /app/text/*.pdf.txt\n2lgKzDuI4E4g.jpg.txt  GFAlpKoFg81H.pdf.txt  QOoA_j33PD_E.jpg.txt  WqWMArQQlSMv.jpg.txt  ivE2mt3HwvEO.jpg.txt  w0i40MJP2Dzm.jpg.txt\n6NVuAIhTV4KB.jpg.txt  JOiylq2_7S18.jpg.txt  T0r6Ou8zvqTA.pdf.txt  dvkRkFVFhHga.pdf.txt  lxtL9XrYRsVG.jpg.txt  wIQEB5nR79b2.pdf.txt\nF0oZMhSUm2dO.jpg.txt  KrJiw0OZx7jf.jpg.txt  UsN9tVTKskms.pdf.txt  dx0AWchV01ZJ.pdf.txt  vvK89XK847m3.jpg.txt\n==> /app/text/GFAlpKoFg81H.pdf.txt \u003c==\nStock Report for 2016-08\nCategory : Produce\nid category : 7\nProduct\n\nUnits Sold\n\nUnits in Stock\n\nUnit Price\n\nRössle Sauerkraut\n\n20\n\n26\n\n45.6\n\nManjimup Dried Apples\n\n2\n\n20\n\n53\n\n\n\n==> /app/text/T0r6Ou8zvqTA.pdf.txt \u003c==\nInvoice\nOrder ID: 10267\nCustomer ID: FRANK\nOrder Date: 2016-07-29\n\nCustomer Details:\nContact Name:\n\nPeter Franken\n\nAddress:\n\nBerliner Platz 43\n\nCity:\n\nMünchen\n\nPostal Code:\n\n80805\n\nCountry:\n\nGermany\n\nPhone:\n\n089-0877310\n\nFax:\n\n089-0877451\n\nProduct Details:\nProduct ID\n\nProduct Name\n\nQuantity\n\nUnit Price\n\n40\n\nBoston Crab Meat\n\n50\n\n14.7\n\n==> /app/text/UsN9tVTKskms.pdf.txt \u003c==\nInvoice\nOrder ID: 10492\nCustomer ID: BOTTM\nOrder Date: 2017-04-01\n\nCustomer Details:\nContact Name:\n\nElizabeth Lincoln\n\nAddress:\n\n23 Tsawassen Blvd.\n\nCity:\n\nTsawassen\n\nPostal Code:\n\nT2F 8M4\n\nCountry:\n\nCanada\n\nPhone:\n\n(604) 555-4729\n\nFax:\n\n(604) 555-3745\n\nProduct Details:\nProduct ID\n\nProduct Name\n\nQuantity\n\nUnit Price\n\n25\n\nNuNuCa Nuß-Nougat-Creme\n\n60\n\n11.2\n\n==> /app/text/dvkRkFVFhHga.pdf.txt \u003c==\nPurchase Orders\nOrder ID\n\nOrder Date\n\nCustomer Name\n\n10248\n\n2016-07-04\n\nPaul Henriot\n\nProducts\n\nProduct ID:\n\nProduct:\n\nQuantity:\n\nUnit Price:\n\n11\n\nQueso Cabrales\n\n12\n\n14\n\n42\n\nSingaporean Hokkien Fried Mee\n\n10\n\n9.8\n\n72\n\nMozzarella di Giovanni\n\n5\n\n34.8\n\nPage 1\n\n\n\n==> /app/text/dx0AWchV01ZJ.pdf.txt \u003c==\nOrder ID: 10248\nShipping Details:\nShip Name: Vins et alcools Chevalier\nShip Address: 59 rue de l-Abbaye\nShip City: Reims\nShip Region: Western Europe\nShip Postal Code: 51100\nShip Country: France\n\nCustomer Details:\nCustomer ID: VINET\nCustomer Name: Vins et alcools Chevalier\n\nEmployee Details:\nEmployee Name: Steven Buchanan\n\nShipper Details:\nShipper ID: 3\nShipper Name: Federal Shipping\n\nOrder Details:\nOrder Date: 2016-07-04\nShipped Date: 2016-07-16\n\nProducts:\n-------------------------------------------------------------------------------------------------Product: Queso Cabrales\nQuantity: 12\nUnit Price: 14.0\nTotal: 168.0\n-------------------------------------------------------------------------------------------------Product: Singaporean Hokkien Fried Mee\nQuantity: 10\nUnit Price: 9.8\nTotal: 98.0\n-------------------------------------------------------------------------------------------------Product: Mozzarella di Giovanni\nQuantity: 5\n\n\nUnit Price: 34.8\nTotal: 174.0\n\nTotal Price:\nTotal Price: 440.0\n\n\n\n==> /app/text/wIQEB5nR79b2.pdf.txt \u003c==\nInvoice\nOrder ID: 10248\nCustomer ID: VINET\nOrder Date: 2016-07-04\n\nCustomer Details:\nContact Name:\n\nPaul Henriot\n\nAddress:\n\n59 rue de l'Abbaye\n\nCity:\n\nReims\n\nPostal Code:\n\n51100\n\nCountry:\n\nFrance\n\nPhone:\n\n26.47.15.10\n\nFax:\n\n26.47.15.11\n\nProduct Details:\nProduct ID\n\nProduct Name\n\nQuantity\n\nUnit Price\n\n11\n\nQueso Cabrales\n\n12\n\n14.0\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 4311
+    },
+    {
+      "id": 7,
+      "label": "读取金额遇错",
+      "summary": "尝试读取 3 份 PDF 发票末尾以定位总额。",
+      "result": "tail -30 报错：option used in invalid context。",
+      "kind": "review",
+      "groupId": "pdf",
+      "message": "Analysis: PDFs classified so far: GFAlpKoFg81H (stock report - other), T0r6Ou8zvqTA (Invoice), UsN9tVTKskms (Invoice), dvkRkFVFhHga (Purchase Orders - other), dx0AWchV01ZJ (Order/shipping details - other), wIQEB5nR79b2 (Invoice). I need to see the full text of invoice PDFs to find totals/VAT, plus the JPG texts.\nPlan: Show full text of the three invoice PDFs and then the JPG texts.",
+      "toolCalls": [
+        {
+          "id": "call_5_1",
+          "name": "bash_command",
+          "command": "tail -30 /app/text/T0r6Ou8zvqTA.pdf.txt /app/text/UsN9tVTKskms.pdf.txt /app/text/wIQEB5nR79b2.pdf.txt\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# tail -30 /app/text/T0r6Ou8zvqTA.pdf.txt /app/text/UsN9tVTKskms.pdf.txt /app/text/wIQEB5nR79b2.pdf.txt\ntail: option used in invalid context -- 3\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 6299
+    },
+    {
+      "id": 8,
+      "label": "修正命令重试",
+      "summary": "将 tail -30 改为 tail -n 30，重新读取发票金额。",
+      "result": "读取总额 4031、896、440；未见 VAT。",
+      "kind": "repair",
+      "groupId": "pdf",
+      "message": "Analysis: tail -30 syntax failed; need tail -n 30 instead.\nPlan: Use tail -n 30 on the three invoice PDF text files.",
+      "toolCalls": [
+        {
+          "id": "call_6_1",
+          "name": "bash_command",
+          "command": "tail -n 30 /app/text/T0r6Ou8zvqTA.pdf.txt /app/text/UsN9tVTKskms.pdf.txt /app/text/wIQEB5nR79b2.pdf.txt\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# tail -n 30 /app/text/T0r6Ou8zvqTA.pdf.txt /app/text/UsN9tVTKskms.pdf.txt /app/text/wIQEB5nR79b2.pdf.tx\nt\n==> /app/text/T0r6Ou8zvqTA.pdf.txt \u003c==\n\nBoston Crab Meat\n\n50\n\n14.7\n\n59\n\nRaclette Courdavault\n\n70\n\n44.0\n\n76\n\nLakkalikööri\n\n15\n\n14.4\n\nTotalPrice\n\n4031.0\n\nPage 1\n\n\n\n==> /app/text/UsN9tVTKskms.pdf.txt \u003c==\n\nProduct Name\n\nQuantity\n\nUnit Price\n\n25\n\nNuNuCa Nuß-Nougat-Creme\n\n60\n\n11.2\n\n42\n\nSingaporean Hokkien Fried Mee\n\n20\n\n11.2\n\nTotalPrice\n\n896.0\n\nPage 1\n\n\n\n==> /app/text/wIQEB5nR79b2.pdf.txt \u003c==\n\nQueso Cabrales\n\n12\n\n14.0\n\n42\n\nSingaporean Hokkien Fried Mee\n\n10\n\n9.8\n\n72\n\nMozzarella di Giovanni\n\n5\n\n34.8\n\nTotalPrice\n\n440.0\n\nPage 1\n\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 6837
+    },
+    {
+      "id": 9,
+      "label": "核对 JPG · 第一批",
+      "summary": "阅读 3 份 JPG OCR 文本，发现 Total 与 Amount Due 不一致的发票。",
+      "result": "1 份发票、2 份其他；按规则采用 Total 6558。",
+      "kind": "review",
+      "groupId": "jpg",
+      "message": "Analysis: Invoice PDFs: T0r6Ou8zvqTA (Total 4031.0, no VAT), UsN9tVTKskms (896.0, no VAT), wIQEB5nR79b2 (440.0, no VAT). Now examine the JPG OCR outputs.\nPlan: Cat the JPG text files to classify and extract amounts. Show a few at a time.",
+      "toolCalls": [
+        {
+          "id": "call_7_1",
+          "name": "bash_command",
+          "command": "cat /app/text/2lgKzDuI4E4g.jpg.txt\n"
+        },
+        {
+          "id": "call_7_2",
+          "name": "bash_command",
+          "command": "cat /app/text/6NVuAIhTV4KB.jpg.txt\n"
+        },
+        {
+          "id": "call_7_3",
+          "name": "bash_command",
+          "command": "cat /app/text/F0oZMhSUm2dO.jpg.txt\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/2lgKzDuI4E4g.jpg.txt\nInvoice\n\nInvoice number 976987\nDate of issue Oct. 3, 2023\nDate due Nov. 30, 2023\n\nacct_1N8CpQGmFzQxlIDx\n\nBill to\nCMCOM\n$4382 USD due Nov. 30, 2023\nPay online\nDescription Quantity unit_price Amount\nGreen Belting Teflon 100-10S\nng 10 $35 $350\nGreen Belting Teflon 100-10S\nD 15050 FI FastC\nevcon exane FastCure , $40 $40\nDevcon 15050 Flexane FastCure\n3M #74 Scrubbing S 20/cs\ncru ing ponge 3 $40 $320\n3M #74 Scrubbing Sponge 20/cs\n3M #468MP Transfer Tape 1 1/2\"\nP 5 $16 $80\n3M #468MP Transfer Tape 1 1/2\"\n3M PPS MIX RATIO INSERT\n10 $36 $360\n3M PPS MIX RATIO INSERT\nLoctite 5600 Sil. Res. Black\noc | e | es. Blac 8 $764 $6112\nLoctite 5600 Sil. Res. Black\n3M SJ3519FR Scotchmate Fast HK\ncotchmate Fas , $107 $107\n3M SJ3519FR Scotchmate Fast HK\nSubTotal: $6558\nTotal: $6558\n\nAmount due: $4382 USD\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/6NVuAIhTV4KB.jpg.txt\nWilliam H. Gmeiner\n\nAssistant Professor\n\nEppley Institute for Research in Cancer and Allied Diseases\nUniversity of Nebraska Medical Center, Omaha, NE 68198-\n(402) 559-4257 (phone)\n\n(402) 559-4651 (fax)\n\nbgmeiner@unmce.edu\n\nPersonal:\n\nBorn May 12, 1961 in East Cleveland, Ohio\n\n6805\n\nMarried to wife Susan with two children, R.J. (6) and Michael (4).\n\nEducation:\nUniversity of Chicago, Chicago, IL B.A. 1982 Chemistry\nUniversity of Utah, Salt Lake City Ph.D. 1989 Organic Chemistry\nUniversity of Alberta, Edmonton, Alberta Postdoc 1989-1991\nProfessional Experience:\nAssistant Professor, Eppley Institute for Research in Cancer, 1994-\nUniversity of Nebraska Medical Center, Omaha, NE\nCourtesy Assistant Professor, Department of Biochemistry 1992-\nand Molecular Biology, UNMC, Omaha, NE\nCourtesy Assistant Professor, Department of Pharmaceutical 1992-\nSciences, UNMC, Omaha, NE\nDirector of NMR Shared Instrumentation Facility 1992-\nUNMC/Eppley Cancer Center\nHonors:\nAlberta Heritage Medical Research Fellow 1990-199!\nUniversity of Utah Research Award 1988\nGraduate Fellowship University of Utah 1983-1989\nGeneral Honors from the University of Chicago 1982\nAffiliations:\nAmerican Chemical Society\n\nAmerican Association of Cancer Research\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/F0oZMhSUm2dO.jpg.txt\n70057287\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 7543
+    },
+    {
+      "id": 10,
+      "label": "核对 JPG · 第二批",
+      "summary": "继续阅读 3 份 JPG，提取含税额并处理第二个 Total 特例。",
+      "result": "2 份发票、1 份其他；总额 6860.45 与 9963。",
+      "kind": "review",
+      "groupId": "jpg",
+      "message": "Analysis: 2lgKzDuI4E4g.jpg is an invoice with both Total ($6558) and Amount due ($4382) - special case applies: use Total=6558, no VAT. 6NVuAIhTV4KB.jpg is a CV (other). F0oZMhSUm2dO.jpg is just a number (other). Continue with remaining JPGs.\nPlan: Cat the remaining JPG text files.",
+      "toolCalls": [
+        {
+          "id": "call_8_1",
+          "name": "bash_command",
+          "command": "cat /app/text/JOiylq2_7S18.jpg.txt\n"
+        },
+        {
+          "id": "call_8_2",
+          "name": "bash_command",
+          "command": "cat /app/text/KrJiw0OZx7jf.jpg.txt\n"
+        },
+        {
+          "id": "call_8_3",
+          "name": "bash_command",
+          "command": "cat /app/text/QOoA_j33PD_E.jpg.txt\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/JOiylq2_7S18.jpg.txt\nInvoice no: 12847181\n\nDate of issue:\n\nSeller:\n\nFitzpatrick and Sons\n00480 Cook Cove\nSpencerport, UT 12036\n\nTax Id: 998-99-5253\nIBAN: GB92PBPQ73499358975916\n\nITEMS\nNo. Description Qty\n1. HP Desktop Computer PC J] 4,00\n\nCore i5 16GB 2TB HD 256GB\nSSD 22\" LCD J] Windows 10\n\n2. CUSTOM BUILT AMD RYZEN 3,00\nTHREADRIPPER GAMING\nCOMPUTER , 32 GB RAM,\n\n3: Fast Dell Optiplex Desktop PC 1,00\nComputer Dual Core 3.4Ghz\n8GB 1TB Win 10 Pro WIFI\n\n4. Dell Optiplex 790 Computer i7 3,00\n@ 3.40 Ghz Quad Core 250GB\n4GB Working\n\nS Vintage Microsolutions Pentium 2,00\n\n133mhz Desktop Tower PC\nWindows 95 5.25 Floppy\n\nSUMMARY\n\nVAT [%]\n10%\n\nTotal\n\n03/03/2012\n\nUM\n\neac\n\neac\n\neac\n\neac\n\nh\n\nn\n\neac\n\nClient:\nDuncan PLC\n\nUnit 8799 Box 0703\n\nDPO AP 81970\n\nTax Id: 911-82-7132\n\nNet price\n\n139,95\n\n1 400,00\n\n217,00\n\n159,99\n\n390,00\n\nNet worth\n6 236,77\n\n$ 6 236,77\n\nNet worth\n\n559,80\n\n4 200,00\n\n217,00\n\n479,97\n\n780,00\n\nVAT [%]\n\n10%\n\n10%\n\n10%\n\n10%\n\n10%\n\nVAT\n\n623,68\n\n$ 623,68\n\nGross\nworth\n\n615,78\n\n4 620,00\n\n238,70\n\n527,97\n\n858,00\n\nGross worth\n\n6 860,45\n\n$ 6 860,45\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/KrJiw0OZx7jf.jpg.txt\nInvoice\n\nInvoice number 257667\nDate of issue Oct. 19, 2023\nDate due Nov. 21, 2023\n\nacct_1N8CpQGmFzQxlIDx\nBill to\n\nBLUE SPARK DESIGN\n\n$7139 USD due Nov. 21, 2023\n\nPay online\nDescription Quantity unit_price Amount\n3M 471 Yellow Vinyl T\ncvomany” Tape 7 $105 $735\n3M 471 Yellow Vinyl Tape\nD 14210 5 min. Epo\nevcon min DOxy 10 $7 $70\nDevcon 14210 5 min. Epoxy\n3M 05440 Stikit Hand Block 5\"\nween 9 $15 $135\n3M 05440 Stikit Hand Block 5\"\nSubTotal: $9963\nTotal: $9963\n\nAmount due: $7139 USD\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/QOoA_j33PD_E.jpg.txt\nnun\nINTEROFFICE MEMORANDUM .\nTO G. W. McKenna FROM M. D h SE C R al\n$ 7 © n s . a n\n: No \"34\n\nInformation is attached with regard to Evolutionary and\n\nRevolutionary second generation programs. Both programs are\nsimilar in that they target low/no CO and glass replacement as\nkey objectives. The Revolutionary program additionally seeks to\nsimplify manufacturing, while the Evolutionary program targets\nproduct development around designs that are consistent with first\ngeneration manufacturing concepts.\n\nAbbreviated action plans are provided for each product concept.\nCertain dates involving other departments were assumed based on\nusual time frames. These dates are, therefore, subject to\napproval and agreement.\n\nAs you will notice, there are a multitude of product concepts.\nThis number will probably expand even more before it begins to\nfocus on key opportunities. Decision dates are, therefore, built\ninto the plans, where possible.\n\nThe thing that becomes most obvious in reviewing the product\nconcepts is the need for (1) good and innovative consumer\nresearch and (2) a sound and, perhaps, entrepreneurial business\nperspective to realize the greatest possible profit potential\n\nfrom the unique technology that we now possess. This technology\nprovides the opportunity of developing a wide variety of smoking\n\nproducts where the profit potential is immense. It is critical\nthat this technology be married to an innovative consumer\n\nresearch program that is capable of identifying market\nopportunities for non-traditional smoking products.\n\nADS\n\nM. D. Shannon\n\nAttachments\n\nxc/enc: G. R. DiMarco\nR. A. Lloyd\nS. L. Jowdy\nD. E. Townsend\nE. G. Farrier\nJ. F. Clearma\nH. E. Osmon\n\nT. R. Campbell\n\nMDS:bwec\n\n_ RE: Second Generation DATE: September 3, 1986 Sout\n\nBS28 20995\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 9191
+    },
+    {
+      "id": 11,
+      "label": "核对 JPG · 第三批",
+      "summary": "检查下一批 3 份 JPG，保留总额与 VAT。",
+      "result": "2 份发票、1 份其他；总额 819.06 与 797.91。",
+      "kind": "review",
+      "groupId": "jpg",
+      "message": "Analysis: JOiylq2_7S18.jpg is an invoice: gross total 6860.45, VAT 623.68. KrJiw0OZx7jf.jpg is an invoice with Total $9963 and Amount due $7139 - special case use 9963, VAT 0. QOoA_j33PD_E.jpg is a memo (other). Continue with the remaining 5 JPGs.\nPlan: View the remaining JPG text files.",
+      "toolCalls": [
+        {
+          "id": "call_9_1",
+          "name": "bash_command",
+          "command": "cat /app/text/WqWMArQQlSMv.jpg.txt\n"
+        },
+        {
+          "id": "call_9_2",
+          "name": "bash_command",
+          "command": "cat /app/text/ivE2mt3HwvEO.jpg.txt\n"
+        },
+        {
+          "id": "call_9_3",
+          "name": "bash_command",
+          "command": "cat /app/text/lxtL9XrYRsVG.jpg.txt\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/WqWMArQQlSMv.jpg.txt\nPHILIP MORRIS MANAGEMENT CORP. INTER-OFFICE CORRESPONDENC:\n—— NER OPRICE CORRESPONDENC\n\nTO:\nFROM:\nRE:\n\n120 PARK AVENUE NEW YORK, N}\n\nDistribution DATE: September 19, 1995\nMayada Logue th\n\nManuscript accepted for publication\n\nAttached is a copy of the manuscript “Dilution Ventilation to Accommodate\nSmoking in Office Buildings: A Case Study\" that has been accepted for publication\nin the ASHRAE Journal. The exact issue of the Journal has not been identified but it\nis expected that the article will appear in the February or March 1996 issue. Please\ndo not distribute outside of PM until publication. The information contained in the\n\narticle has been submitted to OSHA.\n\nDistribution:\n\nM. Firestone, Esq. (w/o enclosure)\nL. McAlpin\n\nT. Sanders\n\nR. Walk\n\nWRA\n\nwv\n\nPSSP360S0\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/ivE2mt3HwvEO.jpg.txt\nInvoice no: 16273983\n\nDate of issue:\n\nSeller:\n\nReyes, Holloway and Lee\n38676 Johnson Burg Suite 666\nWest Rebeccamouth, SD 02588\n\nTax Id: 909-83-7738\nIBAN: GB96VWUL52026848004193\n\nITEMS\nNo. Description Qty\ntks Handmade Thick round warm 4,00\n\ncrochet Rug Carpet Mat 97%\nacrylic 3% me Floor Decor\n\n2. Rug White Moroccan Beni 2,00\nOurain Trellis Shag Area Rug\nAuthentic Handmade Carpet\n\n3: Abstract Living Room Carpet 1,00\nHome Decor Nordic Style\nBedside Area Rug Floor Mats\n\n4. Leopard Printed Rug Skin Mat 1,00\nLeather Faux Fur Animals Area\nRugs Home Carpets\n\n5: 1pc Exquisite Durable Foot 2,00\n\nCloth Christmas Carpet Xmas\nCushion for Kitchen\n\nSUMMARY\n\nVAT [%]\n10%\n\nTotal\n\n04/01/2017\n\nUM\n\neacn\n\neacn\n\neacn\n\neacn\n\neacn\n\nClient:\nCastillo LLC\n\n70391 Kelsey Terrace\nGarcialand, VT 41740\n\nTax Id: 901-88-0463\n\nNet price\n\n44,99\n\n245,00\n\n24,01\n\n19,49\n\nils\\37/\n\nNet worth\n744,60\n\n$ 744,60\n\nNet worth VAT [%]\n179,96 10%\n490,00 10%\n\n24,01 10%\n19,49 10%\n31,14 10%\nVAT\n74,46\n\n$ 74,46\n\nGross\nworth\n\n197,96\n\n539,00\n\n26,41\n\n21,44\n\n34,25\n\nGross worth\n\n819,06\n\n$ 819,06\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/lxtL9XrYRsVG.jpg.txt\nInvoice no: 89969473\n\nDate of issue:\n\nSeller:\n\nJohnson-Martin\n3836 Moore Ports\nNorth Michael, MO 01844\n\nTax Id: 972-82-0713\nIBAN: GB71GBDG68039919194335\n\nITEMS\nNo. Description Qty\ntks Wild West Wine 2,00\n2. Press Wine 15L Fruit Cider 2,00\n\nApple Crusher Juice Grape\nStainless Maker Grapes New\n\nBe Wine Rack Holder Iron Art 3,00\nHanging Racks Glass Cup\nStemware Shelf Mounted 2\nColor\n\n4. Rust Proof Three Rows Tool 2,00\nWine Glass Holder Simple Iron\nWire Home Hanging Rack\n\n5: VTG 1970s MCM Brown Steel 1,00\n\nTube Wall or Desk Mounted\n12-Wine Rack Bottle Holder\n\nSUMMARY\n\nVAT [%]\n10%\n\nTotal\n\n10/29/2016\n\nUM\n\neacn\n\neacn\n\neacn\n\neacn\n\neacn\n\nClient:\n\nDeleon, Davila and Allen\n355 King Lake Suite 071\nSouth Haleyshire, KY 55765\n\nTax Id: 944-77-3882\n\nNet price Net worth VAT [%]\n\n27,00 54,00\n279,00 558,00\n18,75 56,25\n11,56 23,12\n34,00 34,00\nNet worth VAT\n725,37 72,54\n\n$ 725,37 $ 72,54\n\n10%\n\n10%\n\n10%\n\n10%\n\n10%\n\nGross\nworth\n\n59,40\n\n613,80\n\n61,87\n\n25,43\n\n37,40\n\nGross worth\n\n797,91\n\n$ 797,91\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 11348
+    },
+    {
+      "id": 12,
+      "label": "核对 JPG · 最后一批",
+      "summary": "阅读最后 2 份 JPG，完成全部文档分类与金额提取。",
+      "result": "2 份发票；总额 6204.19 与 44745.59。",
+      "kind": "review",
+      "groupId": "jpg",
+      "message": "Analysis: WqWMArQQlSMv.jpg is a memo (other). ivE2mt3HwvEO.jpg is an invoice (total 819.06, VAT 74.46). lxtL9XrYRsVG.jpg is an invoice (total 797.91, VAT 72.54). Two JPGs remain.\nPlan: View the last two JPG text files.",
+      "toolCalls": [
+        {
+          "id": "call_10_1",
+          "name": "bash_command",
+          "command": "cat /app/text/vvK89XK847m3.jpg.txt\n"
+        },
+        {
+          "id": "call_10_2",
+          "name": "bash_command",
+          "command": "cat /app/text/w0i40MJP2Dzm.jpg.txt\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/vvK89XK847m3.jpg.txt\nInvoice no: 51109338\n\nDate of issue: 04/13/2013\n\nSeller: Client:\n\nAndrews, Kirby and Valdez Becker Ltd\n\n58861 Gonzalez Prairie 8012 Stewart Summit Apt. 455\nLake Daniellefurt, IN 57228 North Douglas, AZ 95355\n\nTax Id: 945-82-2137 Tax Id: 942-80-0517\n\nIBAN: GB75MCRL06841367619257\n\nITEMS\nNo. Description Qty UM Net price Net worth VAT [%] Gross\nworth\ntks CLEARANCE! Fast Dell Desktop 3,00 each 209,00 627,00 10% 689,70\nComputer PC DUAL CORE\nWINDOWS 10 4/8/16GB RAM\n2. HP T520 Thin Client Computer 5,00 each 37,75 188,75 10% 207,63\nAMD GX-212JC 1.2GHz 4GB RAM\nTESTED !!READ BELOW!!\n3: gaming pc desktop computer 1,00 each 400,00 400,00 10% 440,00\n4. 12-Core Gaming Computer 3,00 each 464,89 1 394,67 10% 1 534,14\nDesktop PC Tower Affordable\nGAMING PC 8GB AMD Vega RGB\nDe Custom Build Dell Optiplex 9020 5,00 each 221,99 1 109,95 10% 1 220,95\nMT i5-4570 3.20GHz Desktop\nComputer PC\n6. Dell Optiplex 990 MT Computer 4,00 each 269,95 1 079,80 10% 1 187,78\nPC Quad Core i7 3.4GHz 16GB\n2TB HD Windows 10 Pro\nae Dell Core 2 Duo Desktop 5,00 each 168,00 840,00 10% 924,00\nComputer | Windows XP Pro |\n4GB | 500GB\nSUMMARY\nVAT [%] Net worth VAT Gross worth\n10% 5 640,17 564,02 6 204,19\n\nTotal $5 640,17 $ 564,02 $ 6 204,19\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/text/w0i40MJP2Dzm.jpg.txt\nInvoice no: 19471831\n\nDate of issue:\n\nSeller:\n\nPalmer Ltd\n9790 Bauer Hills Apt. 146\nSouth Patriciaton, SD 32497\n\nTax Id: 924-71-1106\nIBAN: GBO5YUTG50853913677557\n\nITEMS\n\nNo. Description\n\nL 15\"x15\" White Decorative\nCoffee Table Top Lapis Lazuli\nMarquetery Patio Décor\n\n2. 4'x2' Marble Dining Table Top\nPietra Dura Birds Inlay Art\nFurniture Decors B444\n\n3: 60 Inches Marble Dinning Table\n\nTop Hand Inlaid Garden Table\nwith Gemstones\n\nSUMMARY\n\nTotal\n\n04/09/2014\n\nQty uM\n3,00 each\n5,00 each\n5,00 each\n\nVAT [%]\n\n10%\n\nClient:\n\nNet price\n\n645,77\n\n1 840,10\n\n5 908,00\n\nNet worth\n40 677,81\n\n$ 40 677,81\n\nRios, Oneill and Rowe\n3571 Tina Trafficway\nBuckleyland, LA 97688\n\nTax Id: 922-72-5979\n\nNet worth VAT [%]\n\n1,937,331; 10%\n9 200,50 10%\n29 540,00 10%\n\nVAT\n\n4 067,78\n\n$ 4 067,78\n\nGross\nworth\n\n2 131,04\n\n10 120,55\n\n32 494,00\n\nGross worth\n44 745,59\n\n$ 44 745,59\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 13477
+    },
+    {
+      "id": 13,
+      "label": "移动文件并汇总",
+      "summary": "归档 10 份发票、7 份其他文档，写入并读回 summary.csv。",
+      "result": "总额 81315.20；VAT 5402.48；原目录为空。",
+      "kind": "write",
+      "groupId": "produce",
+      "message": "Analysis: All files classified. Invoices: T0r6Ou8zvqTA.pdf (4031.0, vat 0), UsN9tVTKskms.pdf (896.0, 0), wIQEB5nR79b2.pdf (440.0, 0), 2lgKzDuI4E4g.jpg (Total 6558, Amount due 4382 → use 6558, 0), JOiylq2_7S18.jpg (6860.45, VAT 623.68), KrJiw0OZx7jf.jpg (Total 9963, Amount due 7139 → use 9963, 0), ivE2mt3HwvEO.jpg (819.06, 74.46), lxtL9XrYRsVG.jpg (797.91, 72.54), vvK89XK847m3.jpg (6204.19, 564.02), w0i40MJP2Dzm.jpg (44745.59, 4067.78). Others: GFAlpKoFg81H.pdf (stock report), dvkRkFVFhHga.pdf (purchase orders), dx0AWchV01ZJ.pdf (order/shipping details), 6NVuAIhTV4KB.jpg (CV), F0oZMhSUm2dO.jpg (number only), QOoA_j33PD_E.jpg (memo), WqWMArQQlSMv.jpg (memo). Sums: total_amount = 81315.20, vat = 5402.48.\nPlan: Create /app/invoices and /app/other directories, move files accordingly, write summary.csv with a Python script for accurate sums, then verify documents dir empty.",
+      "toolCalls": [
+        {
+          "id": "call_11_1",
+          "name": "bash_command",
+          "command": "mkdir -p /app/invoices /app/other && cd /app/documents && mv T0r6Ou8zvqTA.pdf UsN9tVTKskms.pdf wIQEB5nR79b2.pdf 2lgKzDuI4E4g.jpg JOiylq2_7S18.jpg KrJiw0OZx7jf.jpg ivE2mt3HwvEO.jpg lxtL9XrYRsVG.jpg vvK89XK847m3.jpg w0i40MJP2Dzm.jpg /app/invoices/ && mv GFAlpKoFg81H.pdf dvkRkFVFhHga.pdf dx0AWchV01ZJ.pdf 6NVuAIhTV4KB.jpg F0oZMhSUm2dO.jpg QOoA_j33PD_E.jpg WqWMArQQlSMv.jpg /app/other/ && ls -la /app/documents/\n"
+        },
+        {
+          "id": "call_11_2",
+          "name": "bash_command",
+          "command": "python3 \u003c\u003c 'EOF'\nimport csv\nrows = [\n    (\"2lgKzDuI4E4g.jpg\", 6558.00, 0),\n    (\"JOiylq2_7S18.jpg\", 6860.45, 623.68),\n    (\"KrJiw0OZx7jf.jpg\", 9963.00, 0),\n    (\"T0r6Ou8zvqTA.pdf\", 4031.00, 0),\n    (\"UsN9tVTKskms.pdf\", 896.00, 0),\n    (\"ivE2mt3HwvEO.jpg\", 819.06, 74.46),\n    (\"lxtL9XrYRsVG.jpg\", 797.91, 72.54),\n    (\"vvK89XK847m3.jpg\", 6204.19, 564.02),\n    (\"w0i40MJP2Dzm.jpg\", 44745.59, 4067.78),\n    (\"wIQEB5nR79b2.pdf\", 440.00, 0),\n]\ntot = round(sum(r[1] for r in rows), 2)\nvat = round(sum(r[2] for r in rows), 2)\nwith open(\"/app/invoices/summary.csv\", \"w\", newline=\"\") as f:\n    w = csv.writer(f)\n    w.writerow([\"filename\", \"total_amount\", \"vat_amount\"])\n    for r in rows:\n        w.writerow([r[0], f\"{r[1]:.2f}\", f\"{r[2]:.2f}\"])\n    w.writerow([\"total\", f\"{tot:.2f}\", f\"{vat:.2f}\"])\nprint(\"done\", tot, vat)\nEOF\n"
+        },
+        {
+          "id": "call_11_3",
+          "name": "bash_command",
+          "command": "cat /app/invoices/summary.csv && ls /app/invoices/ /app/other/ /app/documents/\n"
+        }
+      ],
+      "observation": "Previous response had warnings:\nWARNINGS: - Extra text detected before JSON object\n- Extra text detected after JSON object\n\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# mkdir -p /app/invoices /app/other && cd /app/documents && mv T0r6Ou8zvqTA.pdf UsN9tVTKskms.pdf wIQEB5n\nR79b2.pdf 2lgKzDuI4E4g.jpg JOiylq2_7S18.jpg KrJiw0OZx7jf.jpg ivE2mt3HwvEO.jpg lxtL9XrYRsVG.jpg vvK89XK847m3.jpg w0i40MJP2Dzm.jpg /app/invoices/ && mv GFAlpKoFg8\n1H.pdf dvkRkFVFhHga.pdf dx0AWchV01ZJ.pdf 6NVuAIhTV4KB.jpg F0oZMhSUm2dO.jpg QOoA_j33PD_E.jpg WqWMArQQlSMv.jpg /app/other/ && ls -la /app/documents/\ntotal 4\ndrwxr-xr-x 1 root root 4096 Jun  5 00:34 .\ndrwxr-xr-x 1 root root   84 Jun  5 00:34 ..\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# python3 \u003c\u003c 'EOF'\n> import csv\n> rows = [\n>     (\"2lgKzDuI4E4g.jpg\", 6558.00, 0),\n>     (\"JOiylq2_7S18.jpg\", 6860.45, 623.68),\n>     (\"KrJiw0OZx7jf.jpg\", 9963.00, 0),\n>     (\"T0r6Ou8zvqTA.pdf\", 4031.00, 0),\n>     (\"UsN9tVTKskms.pdf\", 896.00, 0),\n>     (\"ivE2mt3HwvEO.jpg\", 819.06, 74.46),\n>     (\"lxtL9XrYRsVG.jpg\", 797.91, 72.54),\n>     (\"vvK89XK847m3.jpg\", 6204.19, 564.02),\n>     (\"w0i40MJP2Dzm.jpg\", 44745.59, 4067.78),\n>     (\"wIQEB5nR79b2.pdf\", 440.00, 0),\n> ]\n> tot = round(sum(r[1] for r in rows), 2)\n> vat = round(sum(r[2] for r in rows), 2)\n> with open(\"/app/invoices/summary.csv\", \"w\", newline=\"\") as f:\n>     w = csv.writer(f)\n>     w.writerow([\"filename\", \"total_amount\", \"vat_amount\"])\n>     for r in rows:\n>         w.writerow([r[0], f\"{r[1]:.2f}\", f\"{r[2]:.2f}\"])\n>     w.writerow([\"total\", f\"{tot:.2f}\", f\"{vat:.2f}\"])\n> print(\"done\", tot, vat)\n> EOF\ndone 81315.2 5402.48\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# cat /app/invoices/summary.csv && ls /app/invoices/ /app/other/ /app/documents/\nfilename,total_amount,vat_amount\n2lgKzDuI4E4g.jpg,6558.00,0.00\nJOiylq2_7S18.jpg,6860.45,623.68\nKrJiw0OZx7jf.jpg,9963.00,0.00\nT0r6Ou8zvqTA.pdf,4031.00,0.00\nUsN9tVTKskms.pdf,896.00,0.00\nivE2mt3HwvEO.jpg,819.06,74.46\nlxtL9XrYRsVG.jpg,797.91,72.54\nvvK89XK847m3.jpg,6204.19,564.02\nw0i40MJP2Dzm.jpg,44745.59,4067.78\nwIQEB5nR79b2.pdf,440.00,0.00\ntotal,81315.20,5402.48\n/app/documents/:\n\n/app/invoices/:\n2lgKzDuI4E4g.jpg  KrJiw0OZx7jf.jpg  UsN9tVTKskms.pdf  lxtL9XrYRsVG.jpg  vvK89XK847m3.jpg  wIQEB5nR79b2.pdf\nJOiylq2_7S18.jpg  T0r6Ou8zvqTA.pdf  ivE2mt3HwvEO.jpg  summary.csv       w0i40MJP2Dzm.jpg\n\n/app/other/:\n6NVuAIhTV4KB.jpg  F0oZMhSUm2dO.jpg  GFAlpKoFg81H.pdf  QOoA_j33PD_E.jpg  WqWMArQQlSMv.jpg  dvkRkFVFhHga.pdf  dx0AWchV01ZJ.pdf\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 15170
+    },
+    {
+      "id": 14,
+      "label": "清理并请求完成",
+      "summary": "清理 OCR 临时文本，检查 /app 目录并请求完成。",
+      "result": "临时目录已移除；系统要求再次确认完成。",
+      "kind": "verify",
+      "groupId": "verify",
+      "message": "Analysis: All tasks completed: 10 invoices moved to /app/invoices/, 7 other documents moved to /app/other/, /app/documents/ is empty, and summary.csv created with the correct columns, individual invoice rows, and a final 'total' row (81315.20 total, 5402.48 VAT). The special case for 2lgKzDuI4E4g.jpg and KrJiw0OZx7jf.jpg (Total vs Amount Due differ) was handled by using the Total value.\nPlan: Clean up the temporary /app/text directory used for OCR extraction, then the task is complete.",
+      "toolCalls": [
+        {
+          "id": "call_12_1",
+          "name": "bash_command",
+          "command": "rm -rf /app/text && ls /app\n"
+        },
+        {
+          "id": "call_12_task_complete",
+          "name": "mark_task_complete",
+          "command": "{}"
+        }
+      ],
+      "observation": "Current terminal state:\nNew Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents# rm -rf /app/text && ls /app\ndocuments  invoices  other\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n\n\nAre you sure you want to mark the task as complete? This will trigger your solution to be graded and you won't be able to make any further corrections. If so, include \"task_complete\": true in your JSON response again.",
+      "promptTokens": 18533
+    },
+    {
+      "id": 15,
+      "label": "确认任务完成",
+      "summary": "再次提交完成标记。",
+      "result": "agent 已确认完成；无后续外部评分记录。",
+      "kind": "finish",
+      "groupId": "verify",
+      "message": "Analysis: All tasks are complete. The /app directory now contains only the documents (empty), invoices (10 invoice files + summary.csv), and other (7 non-invoice files) directories. The temporary text extraction directory was cleaned up. summary.csv contains the required columns (filename, total_amount, vat_amount), individual invoice rows with correctly extracted totals and VAT (including the special case handling where Total was preferred over Amount Due for 2lgKzDuI4E4g.jpg and KrJiw0OZx7jf.jpg), and a final 'total' row with sums 81315.20 and 5402.48.\nPlan: No further steps needed. The task is complete.",
+      "toolCalls": [
+        {
+          "id": "call_13_task_complete",
+          "name": "mark_task_complete",
+          "command": "{}"
+        }
+      ],
+      "observation": "New Terminal Output:\n\nroot@2ca18b79-4de8-4574-a901-1e5ebd97036d:/app/documents#\n",
+      "promptTokens": 18987
+    }
+  ],
+  "dependencies": [
+    {
+      "source": 2,
+      "target": 3,
+      "label": "缺少工具 → 选择安装方式",
+      "evidence": "call_0_2 / call_0_3 显示提取工具与相关库不可用；step 3 检查包管理器。"
+    },
+    {
+      "source": 3,
+      "target": 4,
+      "label": "apt 可用 → 安装",
+      "evidence": "call_1_1 显示 pip 缺失而 apt 可用，call_1_2 完成索引更新；step 4 执行 apt-get install。"
+    },
+    {
+      "source": 4,
+      "target": 5,
+      "label": "工具就绪 → 文本提取",
+      "evidence": "call_2_1 返回 tesseract-ocr / poppler-utils 安装结果；step 5 使用两者提取文本。"
+    },
+    {
+      "source": 5,
+      "target": 6,
+      "label": "PDF 文本 → 类型判断",
+      "evidence": "call_3_1 生成 /app/text/*.pdf.txt；call_4_1 读取这些文件。"
+    },
+    {
+      "source": 6,
+      "target": 7,
+      "label": "3 份 PDF 发票 → 核对金额",
+      "evidence": "call_4_1 输出 PDF 标题与内容；call_5_1 选择 T0r6Ou8zvqTA、UsN9tVTKskms、wIQEB5nR79b2。"
+    },
+    {
+      "source": 7,
+      "target": 8,
+      "label": "命令报错 → 修正重试",
+      "evidence": "call_5_1 报 tail: option used in invalid context -- 3；call_6_1 改用 tail -n 30。"
+    },
+    {
+      "source": 5,
+      "target": 9,
+      "label": "OCR 文本 → JPG 分类",
+      "evidence": "call_3_2 生成 JPG OCR 文本；call_7_1 至 call_7_3 读取第一批。"
+    },
+    {
+      "source": 5,
+      "target": 10,
+      "label": "OCR 文本 → 金额与 VAT",
+      "evidence": "call_3_2 生成 JPG OCR 文本；call_8_1 至 call_8_3 读取第二批。"
+    },
+    {
+      "source": 5,
+      "target": 11,
+      "label": "OCR 文本 → 第三批核对",
+      "evidence": "call_3_2 生成 JPG OCR 文本；call_9_1 至 call_9_3 读取第三批。"
+    },
+    {
+      "source": 5,
+      "target": 12,
+      "label": "OCR 文本 → 最后一批核对",
+      "evidence": "call_3_2 生成 JPG OCR 文本；call_10_1 / call_10_2 读取最后两份。"
+    },
+    {
+      "source": 6,
+      "target": 13,
+      "label": "PDF 分类 → 归档",
+      "evidence": "call_4_1 的 PDF 分类证据用于 call_11_1 的移动列表。"
+    },
+    {
+      "source": 8,
+      "target": 13,
+      "label": "PDF 金额 → CSV",
+      "evidence": "call_6_1 输出 4031、896、440；call_11_2 将三项写入 summary.csv。"
+    },
+    {
+      "source": 9,
+      "target": 13,
+      "label": "第一批结果 → 归档与 CSV",
+      "evidence": "call_7_1 的 Total 6558 和第一批分类用于 call_11_1 / call_11_2。"
+    },
+    {
+      "source": 10,
+      "target": 13,
+      "label": "第二批结果 → 归档与 CSV",
+      "evidence": "call_8_1 / call_8_2 的总额与 VAT 以及第二批分类用于 call_11_1 / call_11_2。"
+    },
+    {
+      "source": 11,
+      "target": 13,
+      "label": "第三批结果 → 归档与 CSV",
+      "evidence": "call_9_2 / call_9_3 的总额与 VAT 以及第三批分类用于 call_11_1 / call_11_2。"
+    },
+    {
+      "source": 12,
+      "target": 13,
+      "label": "最后一批结果 → CSV",
+      "evidence": "call_10_1 / call_10_2 的总额与 VAT 用于 call_11_2。"
+    },
+    {
+      "source": 13,
+      "target": 14,
+      "label": "输出已核对 → 收尾",
+      "evidence": "call_11_3 读回 summary.csv 并列出归档目录；step 14 清理 /app/text 并请求完成。"
+    },
+    {
+      "source": 14,
+      "target": 15,
+      "label": "完成提示 → 再次确认",
+      "evidence": "step 14 observation 要求再次提交 task_complete；call_13_task_complete 确认完成。"
+    }
+  ],
+  "compressions": [
+    {
+      "afterStep": 4,
+      "groupId": "env",
+      "label": "压缩准备环境：保留工具就绪摘要"
+    },
+    {
+      "afterStep": 6,
+      "groupId": "extract",
+      "label": "压缩文本提取：保留产物位置与依赖"
+    },
+    {
+      "afterStep": 9,
+      "groupId": "pdf",
+      "label": "压缩 PDF 核对：保留分类与金额"
+    },
+    {
+      "afterStep": 12,
+      "groupId": "jpg",
+      "label": "压缩 JPG 核对：保留已完成的分类与金额"
+    }
+  ],
+  "merges": [
+    {
+      "afterStep": 12,
+      "groupId": "classification",
+      "label": "PDF 与 JPG 子图合并为高层摘要"
+    }
+  ]
+};
+
+</script>
+  <script>
+/* Editable playback timing in seconds. Evidence and storyboard live in data.js. */
+(() => {
+  'use strict';
+  const TIMING = { start: 2.3, plan: 1.3, tool: 1.15, observe: 1.8, compress: 3.3, merge: 5.0, finish: 3.0 };
+  const D = window.TRAJECTORY_DEMO;
+  if (!D) { document.getElementById('event-description').textContent = '数据未加载，请先运行 build_data.py 生成 data.js。'; return; }
+  const $ = id => document.getElementById(id);
+  const steps = new Map(D.steps.map(s => [s.id, s]));
+  const higherGroups = D.higherGroups || [];
+  const groups = new Map([...D.groups,...higherGroups].map(g => [g.id, g]));
+  const events = [];
+  let total = 0, actionNumber = 0;
+  function append(type, fields = {}) { const duration = TIMING[type]; events.push({type, start:total, end:total+duration, duration, index:events.length, ...fields}); total += duration; }
+  append('start');
+  D.steps.forEach(step => {
+    append('plan', {stepId:step.id, groupId:step.groupId});
+    step.toolCalls.forEach((tool, toolIndex) => append('tool', {stepId:step.id, groupId:step.groupId, toolIndex, tool, actionNumber:++actionNumber}));
+    append('observe', {stepId:step.id, groupId:step.groupId});
+    D.compressions.filter(c => c.afterStep === step.id).forEach(c => append('compress', {groupId:c.groupId, stepId:step.id, label:c.label}));
+    (D.merges||[]).filter(c=>c.afterStep===step.id).forEach(c=>append('merge',{groupId:c.groupId,stepId:step.id,label:c.label}));
+  });
+  append('finish');
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let time = 0, playing = false, speed = 1, lastFrame = 0, dirty = true, settling = 0;
+  let selectedStep = null, selectedGroup = null, lastDescriptionKey = '', manualOpen = new Set();
+  let width = 900, height = 510, lastEventIndex = -1;
+  const positions = new Map();
+  const mergeOrigins = new Map();
+  const clamp = (n, lo = 0, hi = 1) => Math.max(lo, Math.min(hi, n));
+  const mix = (a, b, t) => a + (b - a) * t;
+  const ease = t => { t = clamp(t); return t * t * (3 - 2 * t); };
+  const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const fmt = seconds => `${String(Math.floor(seconds / 60)).padStart(2,'0')}:${String(Math.floor(seconds % 60)).padStart(2,'0')}`;
+  const short = (text, max) => text.length > max ? text.slice(0, max-1) + '…' : text;
+  const textCanvas = document.createElement('canvas').getContext('2d');
+  function wrap(text, limit, fontSize = 11) {
+    textCanvas.font = `${fontSize}px -apple-system, BlinkMacSystemFont, sans-serif`;
+    const lines = []; let line = '';
+    const tokens=text.match(/[A-Za-z0-9_/.]+|./gu)||[];
+    for (const token of tokens) {
+      if(textCanvas.measureText(line+token).width>limit&&line&&!/^[。，；、]$/.test(token)){lines.push(line);line=token;}
+      else line+=token;
+    }
+    if (line) lines.push(line); return lines;
+  }
+  function svgText(text, x, y, size = 11, fill = '#536178', extra = '') { return `<text class="graph-text" x="${x}" y="${y}" font-size="${size}" fill="${fill}" ${extra}>${esc(text)}</text>`; }
+  function eventAt(t) { if (t <= 0) return null; return events.find(e => t < e.end) || events.at(-1); }
+  function stateAt(t) {
+    const state = {started:t>0, arrived:new Set(), completed:new Set(), calls:new Map(), compressed:new Set(), folds:new Map(), merged:new Set(), mergeProgress:new Map(), event:eventAt(t), toolCount:0};
+    for (const e of events) {
+      if (t <= e.start) break;
+      if (e.type === 'plan') state.arrived.add(e.stepId);
+      if (e.type === 'tool') { state.calls.set(e.stepId, e.toolIndex+1); state.toolCount++; }
+      if (e.type === 'observe') state.completed.add(e.stepId);
+      if (e.type === 'compress') { state.compressed.add(e.groupId); state.folds.set(e.groupId, reduced ? 1 : ease((t-e.start)/(e.duration*.62))); }
+      if(e.type==='merge'){state.merged.add(e.groupId);state.mergeProgress.set(e.groupId,reduced?1:ease((t-e.start)/(e.duration*.72)));}
+    }
+    for(const g of manualOpen){if(state.merged.has(g))state.mergeProgress.set(g,0);else state.folds.set(g,0);}
+    state.baseGroups=D.groups.filter(g=>g.stepIds.some(id=>state.arrived.has(id)));
+    state.visibleGroups=[...state.baseGroups];
+    for(const parent of higherGroups){
+      if(!(state.mergeProgress.get(parent.id)>0))continue;
+      const first=state.visibleGroups.findIndex(g=>parent.memberGroupIds.includes(g.id));
+      state.visibleGroups=state.visibleGroups.filter(g=>!parent.memberGroupIds.includes(g.id));
+      state.visibleGroups.splice(first,0,parent);
+    }
+    state.visibleCount=new Set([...state.arrived].map(id=>representative(id,state).key)).size;
+    return state;
+  }
+  function representative(stepId,state){
+    const leafId=steps.get(stepId).groupId;
+    const parent=higherGroups.find(g=>g.memberGroupIds.includes(leafId)&&(state.mergeProgress.get(g.id)||0)>.5);
+    const owner=parent?.id||leafId;
+    return {owner,key:parent||(state.folds.get(leafId)||0)>.5?`group:${owner}`:`step:${stepId}`};
+  }
+  function seek(t, resetInspection = true) {
+    time = clamp(Number(t) || 0, 0, total);
+    mergeOrigins.clear();
+    if (resetInspection) { selectedStep = null; selectedGroup = null; manualOpen.clear(); }
+    dirty = true; settling = reduced ? 1 : 45;
+    if (time >= total) playing = false;
+    refreshUI(stateAt(time));
+  }
+  function pause() { playing = false; dirty = true; refreshUI(stateAt(time)); }
+  function play() { if (time >= total) seek(0); manualOpen.clear(); selectedStep = null; selectedGroup = null; playing = true; lastFrame = performance.now(); dirty = true; refreshUI(stateAt(time)); }
+  function seekEvent(index) {
+    pause();
+    const event=events[Math.min(index,events.length-1)];
+    seek(index<0?0:event.start+(['compress','merge'].includes(event.type)?event.duration*.8:.002));
+  }
+  function inspectionButtons(state) {
+    $('inspect-section').hidden = !state.started;
+    const key = [...state.compressed].join(',') + '|' + [...state.merged].join(',') + '|' + [...manualOpen].join(',');
+    if ($('group-controls').dataset.key === key) return;
+    $('group-controls').dataset.key = key;
+    const hidden=new Set(higherGroups.filter(g=>state.merged.has(g.id)&&!manualOpen.has(g.id)).flatMap(g=>g.memberGroupIds));
+    const order=[...state.merged,...state.compressed].filter(id=>!hidden.has(id));
+    $('group-controls').innerHTML=order.map(id=>{const high=groups.get(id).memberGroupIds;return `<div class="group-control ${high?'higher-control':''}"><span>${esc(groups.get(id).title)}</span><button type="button" data-toggle-group="${esc(id)}">${high?(manualOpen.has(id)?'恢复合并':'展开两子图'):(manualOpen.has(id)?'恢复压缩':'展开子图')}</button></div>`;}).join('');
+  }
+  function describe(state) {
+    const e = state.event;
+    let type='等待执行', title='让轨迹开始生长', description='真实回合和工具调用构成子图；演示压缩保留任务摘要与后续依赖。', command='', group=null, step=null;
+    if (selectedStep !== null) { step=steps.get(selectedStep); type=`回合 ${step.id} · 轨迹记录`; title=step.label; description=state.completed.has(step.id)?step.result:step.summary; command=step.toolCalls.slice(0,state.calls.get(step.id)||0).map(c=>c.command || c.name).join('\n\n'); }
+    else if (selectedGroup) { group=groups.get(selectedGroup); type=group.memberGroupIds?'二级摘要 · 演示':'子图摘要 · 演示'; title=group.title; description=group.summary; }
+    else if (e) {
+      step=steps.get(e.stepId);
+      if(e.type==='start'){type='TASK RECEIVED';title='整理 17 份文档';description=D.meta.task;}
+      if(e.type==='plan'){type=`主 AGENT · 回合 ${step.id}`;title=step.label;description=step.summary;}
+      if(e.type==='tool'){type=`ACTION ${String(e.actionNumber).padStart(2,'0')} · 回合 ${step.id}`;title=e.tool.name==='mark_task_complete'?'提交完成标记':step.label;description=`${groups.get(step.groupId).title} · 本回合第 ${e.toolIndex+1} / ${step.toolCalls.length} 次调用`;command=e.tool.command || `${e.tool.name}()`;}
+      if(e.type==='observe'){type=step.id===7?'OBSERVATION · 需要修正':'OBSERVATION · 已接收';title=step.id===7?'读取失败，调整下一步':step.label;description=step.result;}
+      if(e.type==='compress'){group=groups.get(e.groupId);type='COMPRESS · 演示压缩';title=`${group.title} → 摘要`;description=`${group.stepIds.length} 个回合收拢为 1 个摘要节点。完整子图保留，已有依赖连接到摘要。`;}
+      if(e.type==='merge'){group=groups.get(e.groupId);step=null;type='LEVEL 2 · 二级压缩';title=group.title;description='PDF 与 JPG 两个子图收拢为一个阶段摘要。7 个原始回合及逐文件结果仍可展开，后续依赖连接到高层摘要。';}
+      if(e.type==='plan'&&step?.id===13&&state.merged.size)description+=' 图中的分类与金额输入由高层摘要统一提供。';
+      if(e.type==='finish'){type='TRAJECTORY COMPLETE';title='图已生长完成';description=`17 份文件已归档，10 份发票已汇总。${D.compressions.length} 次子图压缩与 ${D.merges?.length||0} 次二级压缩完成，对外依赖继续保留。`;}
+    }
+    $('event-type').textContent=type; $('event-title').textContent=title; $('event-description').textContent=description;
+    $('event-type').style.color=group?'var(--purple)':e?.type==='observe'&&e.stepId===7?'var(--orange)':'var(--blue)';
+    $('action-box').hidden=!command; $('action-code').textContent=command;
+    $('compression-box').hidden=!group;
+    $('retained-list').innerHTML=group?group.retained.map(x=>`<li>${esc(x)}</li>`).join(''):'';
+    $('result-records').hidden=!group?.records;
+    if(group?.records){
+      $('result-records-body').innerHTML=`<table class="records-table"><thead><tr><th>发票文件</th><th>总额</th><th>VAT</th></tr></thead><tbody>${group.records.invoices.map(r=>`<tr><td>${esc(r.filename)}<small>证据 s${r.evidenceStepId}</small></td><td>${esc(r.total_amount)}</td><td>${esc(r.vat_amount)}</td></tr>`).join('')}</tbody></table><div class="records-other">其他文档（${group.records.other.length}）</div><ul class="records-files">${group.records.other.map(r=>`<li>${esc(r.filename)} <small>s${r.evidenceStepId}</small></li>`).join('')}</ul>`;
+    }
+    $('evidence-details').hidden=!step;
+    if(step){
+      const calls=step.toolCalls.slice(0,state.calls.get(step.id)||0);
+      $('evidence-body').innerHTML=`<h3>STEP ${step.id} · 原始 message</h3><pre>${esc(step.message)}</pre><h3>已出现的工具调用</h3><pre>${esc(calls.map(c=>`[${c.id}] ${c.name}\n${c.command}`).join('\n\n'))}</pre>${state.completed.has(step.id)?`<h3>原始 observation</h3><pre>${esc(step.observation)}</pre>`:''}`;
+    }
+  }
+  function refreshUI(state) {
+    const e=state.event; const finished=time>=total;
+    $('play').textContent=playing?'Ⅱ 暂停':finished?'▶ 再播一次':time===0?'▶ 从零播放':'▶ 继续播放';
+    $('live-dot').classList.toggle('playing',playing);
+    $('mode-label').textContent=finished?'轨迹完成':playing?'执行中':time>0?'已暂停':'准备开始';
+    $('event-number').textContent=`${String(e?e.index+1:0).padStart(2,'0')} / ${events.length}`;
+    $('empty-state').hidden=state.started;
+    $('visible-count').textContent=state.visibleCount; $('original-count').textContent=state.arrived.size;
+    $('stat-bar').style.width=`${state.arrived.size?state.visibleCount/state.arrived.size*100:0}%`;
+    $('stat-note').textContent=state.compressed.size?`子图压缩 ${state.compressed.size} 次${state.merged.size?` · 二级压缩 ${state.merged.size} 次`:''} · ${state.toolCount} / ${D.meta.toolCallCount} 次调用。此处统计图节点，未测量 token 节省。`:'随图构建而变化；压缩时以 1 个摘要替代多个回合。';
+    $('player-status').textContent=e?`${e.type==='merge'?'二级压缩':e.type==='compress'?'子图压缩':e.type==='tool'?'工具调用':e.type==='observe'?'接收反馈':e.type==='finish'?'完成':'主 Agent 执行'} · ${state.toolCount} / ${D.meta.toolCallCount} actions`:'准备好开始';
+    $('elapsed').textContent=fmt(time); $('duration').textContent=fmt(total); $('timeline').value=time;
+    $('previous').disabled=time===0; $('next').disabled=finished;
+    $('graph-caption').textContent=e?.type==='merge'?'两份子图摘要 → 一个阶段摘要 → 保留对外依赖':e?.type==='compress'?'收拢内部回合 → 形成摘要节点 → 原有依赖重新连接':state.merged.size?'可逐层展开：阶段摘要 → PDF / JPG 子图 → 原始回合。':state.compressed.size?'点击节点查看证据；已压缩子图可在右侧展开。':'主 Agent 按回合推进，工具调用逐个出现。';
+    document.querySelectorAll('.chapter-button').forEach(b=>b.classList.toggle('active',b.dataset.group===(e?.groupId||'')));
+    inspectionButtons(state);
+    const key=`${e?.index}|${selectedStep}|${selectedGroup}|${state.calls.get(selectedStep)}|${state.completed.has(selectedStep)}`;
+    if(key!==lastDescriptionKey){describe(state);lastDescriptionKey=key;}
+  }
+  function interpolate(id,target,origin){
+    let current=positions.get(id);
+    if(!current){current={x:origin?.x??target.x,y:origin?.y??target.y,w:target.w,h:target.h,opacity:reduced?1:0};positions.set(id,current);}
+    const k=reduced?1:.2;
+    for(const key of ['x','y','w','h','opacity'])current[key]=mix(current[key]??target[key],target[key]??1,k);
+    return current;
+  }
+  function draw(state) {
+    const stage=$('graph-stage'); width=stage.clientWidth;
+    const pad=22, gap=25, cols=width<490?1:width<760?2:3;
+    const cell=(width-pad*2-gap*(cols-1))/cols;
+    const boxes=new Map(), nodePositions=new Map();
+    function layout(items){
+      const result=new Map();let y=172;
+      for(let row=0;row<Math.ceil(items.length/cols);row++){
+        let maxH=0;
+        for(let col=0;col<cols;col++){
+          const g=items[row*cols+col];if(!g)continue;
+          const ids=g.stepIds.filter(id=>state.arrived.has(id)),high=!!g.memberGroupIds;
+          const fold=high?1:state.folds.get(g.id)||0;
+          const h=high?148:mix(57+ids.length*58,118,fold);maxH=Math.max(maxH,h);
+          result.set(g.id,{x:pad+col*(cell+gap),y,w:cell,h,opacity:1,g,fold,ids,row});
+        }
+        y+=maxH+54;
+      }
+      return {items:result,bottom:y-20};
+    }
+    const targetLayout=layout(state.visibleGroups),baseLayout=layout(state.baseGroups);
+    for(const target of targetLayout.items.values()){
+      const b=interpolate(`group-${target.g.id}`,target,{x:target.x,y:target.y-10});
+      boxes.set(target.g.id,{...target,...b,opacity:target.g.memberGroupIds?(state.mergeProgress.get(target.g.id)||0):b.opacity});
+    }
+    // Children travel into their new parent. They keep their own saved state for later expansion.
+    for(const parent of higherGroups){
+      const q=state.mergeProgress.get(parent.id)||0;if(q<=0||q>=1)continue;
+      const destination=boxes.get(parent.id);
+      for(const childId of parent.memberGroupIds){
+        const base=baseLayout.items.get(childId),key=`${parent.id}:${childId}`;
+        if(!mergeOrigins.has(key))mergeOrigins.set(key,{...base,...positions.get(`group-${childId}`)});
+        const origin=mergeOrigins.get(key);
+        const b={...base,fold:1,x:mix(origin.x,destination.x,q),y:mix(origin.y,destination.y,q),w:mix(origin.w,destination.w,q),h:mix(origin.h,destination.h,q),opacity:1-q};
+        boxes.set(childId,b);positions.set(`group-${childId}`,{x:b.x,y:b.y,w:b.w,h:b.h,opacity:b.opacity});
+      }
+    }
+    const visibleBottom=Math.max(targetLayout.bottom,...[...boxes.values()].map(b=>b.y+b.h+30));
+    const desired=Math.max(490,visibleBottom);
+    height=reduced?desired:mix(height,desired,.18);
+    stage.style.height=`${height}px`;
+    $('graph').setAttribute('viewBox',`0 0 ${width} ${height}`);
+    $('graph').style.height=`${height}px`;
+    const root={x:Math.max(22,(width-278)/2),y:28,w:Math.min(width-44,278),h:58};
+    for(const b of boxes.values()){
+      b.ids.forEach((id,i)=>{
+        if(representative(id,state).owner!==b.g.id)return;
+        const raw={x:b.x+12,y:b.y+45+i*58,w:b.w-24,h:47};
+        const folded={x:b.x+12,y:b.y+46,w:b.w-24,h:53};
+        nodePositions.set(id,{x:mix(raw.x,folded.x,b.fold),y:mix(raw.y,folded.y,b.fold),w:raw.w,h:mix(raw.h,folded.h,b.fold),fold:b.fold});
+      });
+    }
+    const s=[];
+    s.push(`<defs><marker id="arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6" fill="#a6b4cc"/></marker><marker id="active-arrow" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto"><path d="M0 0 L6 3 L0 6" fill="#527fe6"/></marker></defs><title id="graph-title">主 Agent 执行与层级压缩动画</title><desc id="graph-desc">已出现 ${state.arrived.size} 个回合，${state.compressed.size} 次子图压缩，${state.merged.size} 次二级压缩。依赖线为人工演示标注。</desc>`);
+    if(!state.started){$('graph').innerHTML=s.join('');return;}
+    const current=state.event, activeGroup=boxes.get(current?.groupId);
+    // The task spine remains stable; only observed rounds appear on it.
+    const railY=119, railWidth=Math.min(width-75,Math.max(90,D.steps.length*24));
+    const railX=(width-railWidth)/2;
+    s.push(`<path d="M${root.x+root.w/2} ${root.y+root.h} V${railY-9}" stroke="#d2dcf0" fill="none"/>`);
+    if(state.arrived.size){
+      const end=railX+(state.arrived.size-1)*(railWidth/(D.steps.length-1));
+      s.push(`<path d="M${railX} ${railY} H${end}" stroke="#d7e1f5" stroke-width="2"/>`);
+      D.steps.filter(step=>state.arrived.has(step.id)).forEach((step,i)=>{
+        const x=railX+i*railWidth/(D.steps.length-1); const active=step.id===current?.stepId;
+        s.push(`<circle cx="${x}" cy="${railY}" r="${active?5:3}" fill="${active?'#3567dc':'#b2c5ee'}"/>`,svgText(step.id,x,railY+20,9,active?'#3567dc':'#91a0ba','text-anchor="middle"'));
+      });
+    }
+    if(activeGroup){
+      const fromX=root.x+root.w/2,toX=activeGroup.x+activeGroup.w/2;
+      s.push(`<path d="M${fromX} ${root.y+root.h} C${fromX} ${root.y+root.h+58} ${toX} ${activeGroup.y-35} ${toX} ${activeGroup.y-7}" fill="none" stroke="#7195e4" stroke-width="1.1" stroke-dasharray="3 5" opacity=".5"/>`);
+    }
+    // Cross-group dependencies are deduplicated when endpoints share summaries.
+    const projected=new Map();
+    D.dependencies.forEach(d=>{
+      if(!state.arrived.has(d.target)||!state.completed.has(d.source))return;
+      const sourceRep=representative(d.source,state),targetRep=representative(d.target,state);
+      const sg=sourceRep.owner,tg=targetRep.owner;
+      if(sg===tg)return;
+      const sourceKey=sourceRep.key,targetKey=targetRep.key;
+      const key=`${sourceKey}>${targetKey}`;
+      if(!projected.has(key))projected.set(key,{...d,sg,tg,count:0,evidenceList:[],key});
+      projected.get(key).count++;
+      projected.get(key).evidenceList.push(`${d.source} → ${d.target} · ${d.label}\n${d.evidence}`);
+    });
+    for(const d of projected.values()){
+      const a=boxes.get(d.sg),b=boxes.get(d.tg); if(!a||!b)continue;
+      const na=nodePositions.get(d.source),nb=nodePositions.get(d.target);
+      const sameRow=Math.abs(a.y-b.y)<12;
+      let path;
+      if(sameRow){
+        const sx=a.x+a.w,sy=na.y+na.h/2,tx=b.x,ty=nb.y+nb.h/2;
+        path=`M${sx} ${sy} C${sx+gap*.75} ${sy} ${tx-gap*.75} ${ty} ${tx-3} ${ty}`;
+      }else if(cols===1||b.row-a.row>1){
+        // Long links use an outer gutter so they cannot look like edges from an intervening task.
+        const useRight=D.groups.indexOf(a.g)%2===1;
+        const sx=useRight?a.x+a.w:a.x,tx=useRight?b.x+b.w:b.x;
+        const sy=na.y+na.h/2,ty=nb.y+nb.h/2;
+        const offset=9+([...projected.keys()].indexOf(d.key)%3)*4;
+        const channel=useRight?width-pad+offset:pad-offset;
+        path=`M${sx} ${sy} Q${channel} ${sy} ${channel} ${sy+12} L${channel} ${ty-12} Q${channel} ${ty} ${tx+(useRight?3:-3)} ${ty}`;
+      }else{
+        const sx=a.x+a.w/2,sy=a.y+a.h,tx=b.x+b.w/2,ty=b.y;
+        const channel=sy+24+([ ...projected.keys()].indexOf(d.key)%3)*5;
+        path=`M${sx} ${sy} C${sx} ${channel} ${sx} ${channel} ${sx+Math.sign(tx-sx)*12} ${channel} L${tx-Math.sign(tx-sx)*12} ${channel} Q${tx} ${channel} ${tx} ${channel+10} L${tx} ${ty-4}`;
+      }
+      const isActive=current?.groupId===d.tg;
+      s.push(`<path data-dependency="${esc(d.key)}" data-evidence-count="${d.count}" d="${path}" fill="none" stroke="${isActive?'#7195df':'#a6b4cc'}" stroke-width="${isActive?1.5:1.2}" marker-end="url(#${isActive?'active-arrow':'arrow'})" opacity=".8"><title>${d.count} 条人工标注依赖\n${esc(d.evidenceList.join('\n\n'))}</title></path>`);
+    }
+    for(const b of boxes.values()){
+      const active=current?.groupId===b.g.id, comp=b.fold,high=!!b.g.memberGroupIds;
+      const complete=b.g.stepIds.every(id=>state.completed.has(id));
+      s.push(`<g data-box="${esc(b.g.id)}" opacity="${b.opacity}"><rect x="${b.x}" y="${b.y}" width="${b.w}" height="${b.h}" rx="11" fill="${high?'#f3effb':comp>.5?'#f8f5fd':active?'#f8faff':'#fafbfd'}" stroke="${high?'#b59bd5':active?(comp>.5?'#bb9edb':'#b5c9f1'):'#e1e6ef'}" stroke-width="${high?1.4:1}"/>`);
+      s.push(svgText(high?'L2':String(D.groups.indexOf(b.g)+1).padStart(2,'0'),b.x+13,b.y+25,10,comp>.5?'#8f72b6':'#91a1b8'));
+      s.push(svgText(b.g.title,b.x+36,b.y+25,12,'#45546d','font-weight="550"'));
+      s.push(svgText(high?'二级摘要':comp>.5?'摘要':complete?'已完成':'执行中',b.x+b.w-13,b.y+25,9,comp>.5?'#8c68b7':complete?'#669687':'#7594c5','text-anchor="end"'));
+      if(comp<.995){
+        b.ids.forEach((id,i)=>{
+          const step=steps.get(id),np=nodePositions.get(id),done=state.completed.has(id),error=id===7&&done;
+          const selected=id===selectedStep,now=id===current?.stepId&&current?.type!=='compress';
+          const calls=state.calls.get(id)||0;
+          const p=interpolate(`node-${id}`,{...np,opacity:1},{x:np.x,y:i?np.y-30:np.y-9});
+          const internal=D.dependencies.find(d=>d.source===b.ids[i-1]&&d.target===id);
+          if(i>0&&comp<.2&&internal){const prev=nodePositions.get(b.ids[i-1]);s.push(`<path data-dependency="step:${internal.source}>step:${id}" data-evidence-count="1" d="M${p.x+20} ${prev.y+prev.h} V${p.y-3}" stroke="${step.kind==='repair'?'#d0a273':'#c7d4e8'}" marker-end="url(#arrow)"><title>${esc(internal.label)}\n${esc(internal.evidence)}</title></path>`);}
+          s.push(`<g class="graph-node" data-step="${id}" role="button" tabindex="0" aria-label="查看回合 ${id}：${esc(step.label)}" opacity="${(1-comp)*p.opacity}"><rect x="${p.x}" y="${p.y}" width="${p.w}" height="${p.h}" rx="7" fill="${error?'#fff8ee':now||selected?'#edf3ff':'#fff'}" stroke="${error?'#e6c79c':now||selected?'#9cb9f2':'#e0e7f0'}"/>`);
+          s.push(`<circle cx="${p.x+15}" cy="${p.y+16}" r="3" fill="${error?'#c78d48':done?'#71978b':'#5481de'}"/>`,svgText(short(step.label,Math.max(10,Math.floor((p.w-64)/12))),p.x+25,p.y+20,11,'#485b78'));
+          s.push(svgText(`s${id}`,p.x+p.w-11,p.y+19,9,'#99a7bc','text-anchor="end"'));
+          s.push(svgText(error?'反馈：命令参数错误':done?'已接收结果':calls?'正在调用工具':'组织下一步行动',p.x+25,p.y+36,9,error?'#b98c54':'#97a2b3'));
+          for(let c=0;c<step.toolCalls.length;c++)s.push(`<rect x="${p.x+p.w-13-(step.toolCalls.length-c)*7}" y="${p.y+29}" width="5" height="5" rx="1.5" fill="${c<calls?'#8ba9e7':'#e5ebf4'}"/>`);
+          s.push('</g>');
+        });
+      }
+      if(comp>.005){
+        const x=b.x+12,y=b.y+44;
+        s.push(`<g class="graph-node" data-group="${esc(b.g.id)}" role="button" tabindex="0" aria-label="查看${esc(b.g.title)}摘要" opacity="${comp}"><rect x="${x}" y="${y}" width="${b.w-24}" height="${high?70:58}" rx="7" fill="${high?'#e9def7':'#f0e9fa'}"/>`);
+        const lines=wrap(b.g.summary,b.w-48,10);
+        lines.slice(0,3).forEach((line,i)=>s.push(svgText(line,x+11,y+18+i*14,10,'#79608f')));
+        if(high)s.push(svgText('PDF 子图 + JPG 子图',x+11,y+59,9,'#8b6da8'));
+        s.push('</g>',svgText(high?`2 个子图 → 1 个阶段摘要 · 可展开 ${b.g.stepIds.length} 个回合`:`${b.g.stepIds.length} 个回合 → 1 个摘要`,b.x+14,b.y+b.h-9,8,'#a490ba'));
+      }
+      s.push('</g>');
+    }
+    const rootTitle=current?.type==='finish'?'主 Agent · 任务完成':current?.type==='merge'?'主 Agent · 合并子图摘要':current?.type==='compress'?'主 Agent · 压缩已完成子图':current?.stepId?`主 Agent · 回合 ${current.stepId}`:'主 Agent · 接收任务';
+    const rootSubtitle=current?.type==='tool'?`ACTION ${String(current.actionNumber).padStart(2,'0')} · ${current.tool.name==='mark_task_complete'?'完成标记':current.tool.name}`:current?.type==='merge'?'子任务层 → 阶段层 · 保留对外依赖':current?.type==='compress'?'保留摘要与依赖，继续后续行动':current?.type==='observe'?'读取环境反馈，更新执行状态':'文档分类与发票汇总';
+    s.push(`<g><rect x="${root.x}" y="${root.y}" width="${root.w}" height="${root.h}" rx="12" fill="#fff" stroke="#b7caef"/><rect x="${root.x+13}" y="${root.y+13}" width="32" height="32" rx="9" fill="#edf2fd"/>`,svgText('A',root.x+29,root.y+35,15,'#3567dc','text-anchor="middle" font-weight="500"'),svgText(rootTitle,root.x+57,root.y+25,12,'#3f5579','font-weight="550"'),svgText(rootSubtitle,root.x+57,root.y+43,9,'#8b9ab0'),'</g>');
+    const focused=document.activeElement;
+    const focusStep=focused?.getAttribute('data-step'),focusGroup=focused?.getAttribute('data-group');
+    const graphHadFocus=$('graph').contains(focused);
+    $('graph').innerHTML=s.join('');
+    if(graphHadFocus){const replacement=focusStep?$('graph').querySelector(`[data-step="${focusStep}"]`):focusGroup?$('graph').querySelector(`[data-group="${focusGroup}"]`):null;replacement?.focus({preventScroll:true});}
+  }
+  $('play').addEventListener('click',()=>playing?pause():play());
+  $('restart').addEventListener('click',()=>{pause();positions.clear();seek(0);});
+  $('previous').addEventListener('click',()=>seekEvent((eventAt(time)?.index??0)-1));
+  $('next').addEventListener('click',()=>{const i=(eventAt(time)?.index??-1)+1;if(i>=events.length){pause();seek(total);}else seekEvent(i);});
+  $('timeline').max=total;
+  $('timeline').addEventListener('input',e=>{pause();seek(e.target.value);});
+  $('speed').addEventListener('change',e=>{speed=Number(e.target.value);});
+  $('overview').addEventListener('click',()=>{pause();seek(total);});
+  $('group-controls').addEventListener('click',e=>{
+    const button=e.target.closest('[data-toggle-group]');if(!button)return;pause();
+    const id=button.dataset.toggleGroup;
+    if(manualOpen.has(id))manualOpen.delete(id);else manualOpen.add(id);
+    selectedGroup=id;selectedStep=null;lastDescriptionKey='';dirty=true;settling=45;refreshUI(stateAt(time));
+  });
+  function selectNode(target){
+    const node=target.closest('[data-step],[data-group]');if(!node)return;pause();
+    selectedStep=node.hasAttribute('data-step')?Number(node.dataset.step):null;
+    selectedGroup=node.dataset.group||null;lastDescriptionKey='';dirty=true;refreshUI(stateAt(time));
+  }
+  $('graph').addEventListener('click',e=>selectNode(e.target));
+  $('graph').addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();selectNode(e.target);}});
+  $('timeline-markers').innerHTML=events.filter(e=>['compress','merge'].includes(e.type)).map(e=>`<span class="timeline-marker ${e.type==='merge'?'higher-marker':''}" style="left:${e.start/total*100}%"></span>`).join('');
+  const chapterItems=D.groups.flatMap((g,i)=>[{id:g.id,label:`${String(i+1).padStart(2,'0')} ${g.title}`},...higherGroups.filter(p=>p.memberGroupIds.at(-1)===g.id).map(p=>({id:p.id,label:'L2 二级压缩'}))]);
+  $('chapters').innerHTML=chapterItems.map(g=>`<button class="chapter-button" data-group="${esc(g.id)}" type="button">${esc(g.label)}</button>`).join('');
+  $('chapters').addEventListener('click',e=>{const b=e.target.closest('[data-group]');if(b)seekEvent(events.findIndex(v=>v.groupId===b.dataset.group));});
+  new ResizeObserver(()=>{dirty=true;settling=45;}).observe($('graph-stage'));
+  function frame(now){
+    const dt=Math.min((now-lastFrame)/1000,.15);lastFrame=now;
+    if(playing){time=Math.min(total,time+dt*speed);dirty=true;if(time>=total)playing=false;}
+    if(dirty||settling>0){const state=stateAt(time);if((state.event?.index??-1)!==lastEventIndex){lastEventIndex=state.event?.index??-1;settling=45;}draw(state);refreshUI(state);dirty=false;settling--;}
+    requestAnimationFrame(frame);
+  }
+  window.TrajectoryPlayer={events,total,dataset:D,seek,seekEvent,play,pause,getState:()=>({time,playing,speed,...stateAt(time),manualOpen:[...manualOpen]})};
+  // A timestamp link opens paused at that exact frame, useful for sharing/export.
+  const linkedTime=/(?:^\?|&)t=(\d+(?:\.\d+)?)(?:&|$)/.exec(window.location?.search||'');
+  if(linkedTime)seek(Number(linkedTime[1]));
+  refreshUI(stateAt(time));requestAnimationFrame(frame);
+})();
+
+</script>
+</body>
+</html>

@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Agent 轨迹 · 生长与压缩</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="app">
+    <header class="header">
+      <div><div class="eyebrow"><span class="brand-mark">↗</span> AGENT CONTEXT LAB <span class="slash">/</span> TRAJECTORY 001</div>
+        <h1>轨迹，随行动生长<span>。</span></h1>
+        <p class="subtitle">从一次工具调用，到一张可压缩的任务图。</p>
+      </div>
+      <div class="case-note"><span class="small-label">本次案例</span><strong>文档分类与发票汇总</strong><span>17 份文件 · 14 个回合 · 28 次工具调用</span></div>
+    </header>
+
+    <section class="workspace" aria-label="轨迹动画">
+      <div class="graph-column">
+        <div class="graph-toolbar"><div class="live-label"><span id="live-dot" class="live-dot"></span><span id="mode-label">准备开始</span></div>
+          <div class="legend"><span><i class="legend-dot"></i>回合</span><span><i class="legend-summary"></i>压缩摘要</span><span><i class="legend-edge"></i>保留依赖</span></div>
+        </div>
+        <div id="graph-stage" class="graph-stage">
+          <svg id="graph" role="img" aria-labelledby="graph-title graph-desc"><title id="graph-title">主 Agent 执行与子任务压缩动画</title><desc id="graph-desc">轨迹从空白逐步构建，已完成子图可收拢为摘要，依赖连线随摘要移动。</desc></svg>
+          <div id="empty-state" class="empty-state"><div class="empty-orbit"><span>A</span></div><strong>一张空白的轨迹图</strong><span>播放后，跟随主 Agent 的每一次行动。</span></div>
+        </div>
+        <div class="graph-bottom"><span id="graph-caption">任务到达 → 执行 action → 形成子图 → 压缩为摘要</span><button id="overview" class="text-button" type="button">跳到完成</button></div>
+      </div>
+
+      <aside class="inspector" aria-label="当前行动与节点详情">
+        <div class="inspector-heading"><span class="small-label">EXECUTION NOTES</span><span id="event-number" class="mono">00 / 00</span></div>
+        <div class="event-type" id="event-type">等待执行</div>
+        <h2 id="event-title">让轨迹开始生长</h2>
+        <p id="event-description">真实回合和工具调用构成子图；演示压缩保留任务摘要与后续依赖。</p>
+        <div id="action-box" class="action-box" hidden><div id="action-label" class="small-label">ACTION</div><pre id="action-code"></pre></div>
+        <div id="compression-box" class="compression-box" hidden><div class="small-label">压缩后保留</div><ul id="retained-list"></ul><div class="compression-foot">原始节点可在下方重新展开查看。</div></div>
+        <details id="result-records" hidden><summary>查看结构化结果 · 17 份文档</summary><div id="result-records-body"></div></details>
+        <div class="context-stat"><div class="stat-header"><span>图中回合 / 摘要节点</span><strong><span id="visible-count">0</span><span class="stat-unit"> / <span id="original-count">0</span> 原始回合</span></strong></div><div class="stat-track"><div id="stat-bar"></div></div><p id="stat-note">随图构建而变化；压缩时以 1 个摘要替代多个回合。</p></div>
+        <div id="inspect-section" class="inspect-section" hidden><div class="small-label">子图检查</div><div id="group-controls"></div><details id="evidence-details"><summary>查看选中回合的原始记录</summary><div id="evidence-body"></div></details></div>
+        <div class="provenance"><span class="provenance-mark">i</span><p>回合与命令来自 <code>trajectory.json</code>。分组、依赖及压缩时点为人工演示设计。</p></div>
+      </aside>
+    </section>
+
+    <section class="player" aria-label="播放控制">
+      <div class="player-main"><button id="play" class="play-button" type="button">▶ 从零播放</button><button id="restart" class="secondary-button" aria-label="重新开始" type="button">↺ 重播</button><button id="previous" class="secondary-button" type="button">上一步</button><button id="next" class="secondary-button" type="button">下一步</button>
+        <div id="player-status" class="player-status" role="status" aria-live="polite">准备好开始</div>
+        <label class="speed-control">速度<select id="speed"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option><option value="3">3×</option></select></label>
+      </div>
+      <div class="timeline-row"><span id="elapsed" class="mono">00:00</span><div class="timeline-wrap"><label class="sr-only" for="timeline">动画进度</label><input id="timeline" type="range" min="0" max="100" value="0" step="0.01"><div id="timeline-markers" class="timeline-markers"></div></div><span id="duration" class="mono">00:00</span></div>
+      <div class="chapter-row" id="chapters"></div>
+    </section>
+    <footer><span>可回放 · 可暂停 · 可检查子图 · <a href="share-with-chatgpt/execution-events.txt">完整事件记录</a> · <a href="share-with-chatgpt/ChatGPT-Pro-upload.zip" download>下载分享材料</a></span><span>压缩仅改变图的展示，完整轨迹始终保留。</span></footer>
+  </main>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

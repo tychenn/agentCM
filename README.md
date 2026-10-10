@@ -4,6 +4,12 @@
 
 项目目标与研究路线见[项目介绍](PROJECT_OVERVIEW.md)；相关工作和待审核方案见[研究调研与方案评审](RESEARCH_REVIEW.md)，待办事项见 [TODO](TODO.md)。
 
+## 轨迹动画
+
+[在线播放](https://tychenn.github.io/agentCM/)展示轨迹从空图开始，随主 Agent 的行动构建，并逐层折叠子图、合并高层摘要和保留依赖。案例沿用本仓库的 `trajectory.json`；分组、依赖与压缩事件属于明确标注的演示设计。
+
+动画源码与修改方法见 [`trajectory-animation/`](trajectory-animation/README.md)。[完整执行事件](https://tychenn.github.io/agentCM/share-with-chatgpt/execution-events.txt)与[关键帧材料包](https://tychenn.github.io/agentCM/share-with-chatgpt/ChatGPT-Pro-upload.zip)可供阅读、讨论和交给 ChatGPT 分析。GitHub Pages 由 `.github/workflows/trajectory-pages.yml` 自动发布。
+
 当前支持两类输入：
 
 | 适配器 | Agent | 原子结点 |
@@ -20,6 +26,7 @@ agentCM/
 ├── RESEARCH_REVIEW.md                 # 待审核的调研与方案
 ├── TODO.md                           # 项目待办
 ├── trajectory.json                   # Terminal-Bench 2.0 示例轨迹
+├── trajectory-animation/             # 可编辑的轨迹生长与层级压缩动画
 ├── reproductions/                    # 外部工作的复现项目
 ├── rzp/                              # 边类型发现仓库，Git submodule
 ├── trajectory-graph/                 # 轨迹建图程序
